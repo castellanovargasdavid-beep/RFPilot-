@@ -103,6 +103,11 @@ imprescindibles para arrancar.
 - **Colas (Fase 3)**: `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`.
 - **Pagos (Fase 6)**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
   `STRIPE_PRICE_PRO`, `STRIPE_PRICE_AGENCY`, `STRIPE_PRICE_PAYG_CREDIT`.
+  Crea los 3 precios en el Dashboard de Stripe (modo test) — Pro y Agencia
+  como precios recurrentes mensuales, Pay-as-you-go como precio único — y
+  copia sus IDs (`price_...`). Para probar webhooks en local:
+  `stripe listen --forward-to localhost:3000/api/webhooks/stripe` (te da
+  el `STRIPE_WEBHOOK_SECRET` de test al arrancar).
 
 ## Estado del proyecto
 
@@ -124,3 +129,7 @@ En construcción por fases (ver commits). Completadas:
 5. Generador de borrador de propuesta: índice generado por IA según la
    estructura exigida por el pliego, editor en árbol con regeneración por
    sección, y exportación real a Word (.docx) y PDF.
+6. Planes y facturación con Stripe: checkout (suscripción Pro/Agencia y
+   compra de créditos pay-as-you-go), portal de facturación, webhooks
+   idempotentes, y plan Agencia con análisis realmente ilimitados (no un
+   número grande de créditos).

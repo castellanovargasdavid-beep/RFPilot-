@@ -318,6 +318,47 @@ nº de referencias) — nunca por ausencia de datos.
   placeholder de "sección pendiente de generar" correctos en los dos
   formatos).
 
+## Facturación, Stripe y créditos (Fase 6)
+
+- **El plan Agencia es "análisis ilimitados" de verdad — no un número
+  grande de créditos.** `hasUnlimitedCredits()` comprueba
+  `Subscription.plan === 'AGENCY' && status === 'ACTIVE'` y, si es cierto,
+  ni siquiera toca el ledger de créditos (ni al consumir ni al
+  reembolsar) — los dos call sites (la ruta que dispara el análisis y el
+  paso de reembolso en el Inngest de la Fase 3) comprueban esto antes de
+  llamar a `consumeCredits`/`refundCredits`. Verificado con datos reales:
+  con saldo en 0 y plan Agencia, el análisis se dispara igualmente y no se
+  crea ninguna entrada nueva en el ledger.
+- **Ledger append-only también para altas.** `grantCredits` (compras
+  pay-as-you-go, alta de plan Pro, renovación mensual) sigue el mismo
+  patrón transaccional `Serializable` que `consumeCredits`/`refundCredits`
+  — nunca se escribe un contador mutable.
+- **Idempotencia de webhooks de Stripe.** `checkout.session.completed`
+  para una compra pay-as-you-go concede créditos vía el `checkout session
+  id` en el metadata del ledger (para poder auditar qué compra generó qué
+  entrada); la concesión de créditos del primer periodo del plan Pro se
+  hace solo si `existing.stripeSubscriptionId !== subscription.id` (para
+  no duplicar si Stripe reenvía el evento); la renovación mensual solo
+  concede créditos cuando `invoice.billing_reason === 'subscription_cycle'`
+  (nunca en la factura inicial, que ya la cubre `checkout.session.completed`).
+- **`current_period_end` de Stripe: comprobado en dos sitios posibles.**
+  Este campo ha cambiado de ubicación entre versiones recientes de la API
+  de Stripe (a veces vive en la propia suscripción, a veces solo en cada
+  subscription item) — `extractCurrentPeriodEnd()`
+  (`src/server/billing/subscription-status.ts`) prueba ambos sitios en
+  vez de asumir uno. Verifica esto contra la versión de API configurada
+  en tu cuenta de Stripe antes de confiar en ello a ciegas.
+- **No probado contra la API real de Stripe en este entorno** (sin
+  `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` disponibles en el sandbox de
+  build). Las rutas de checkout/portal devuelven un 503 explícito
+  (`stripe_not_configured`) en vez de fallar de forma opaca cuando faltan
+  las credenciales — verificado. La lógica de negocio que sí es
+  determinista y no depende de Stripe (el bypass de créditos ilimitados
+  del plan Agencia) se probó con datos reales. Verificar el flujo
+  completo de checkout/webhook con claves de test de Stripe antes de
+  producción — ver README.md para la configuración del CLI de Stripe en
+  local (`stripe listen`).
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`

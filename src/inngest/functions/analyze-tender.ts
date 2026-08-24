@@ -1,6 +1,6 @@
 import { inngest } from "@/inngest/client";
 import { prisma } from "@/lib/prisma";
-import { refundCredits } from "@/server/billing/credits";
+import { refundCredits, hasUnlimitedCredits } from "@/server/billing/credits";
 import { CREDIT_COST_TENDER_ANALYSIS } from "@/lib/plans";
 import { analyzeTenderRequirements, REQUIREMENTS_EXTRACTION_PROMPT_VERSION } from "@/ai/analyze-tender";
 import { CLAUDE_MODEL } from "@/ai/client";
@@ -58,7 +58,9 @@ export const analyzeTenderFunction = inngest.createFunction(
           prisma.tenderAnalysis.update({ where: { id: analysis.id }, data: { status: "FAILED", errorMessage: message } }),
           prisma.tender.update({ where: { id: tenderId }, data: { status: "ANALYSIS_FAILED", statusMessage: message } }),
         ]);
-        await refundCredits(tender.organizationId, CREDIT_COST_TENDER_ANALYSIS, tenderId);
+        if (!(await hasUnlimitedCredits(tender.organizationId))) {
+          await refundCredits(tender.organizationId, CREDIT_COST_TENDER_ANALYSIS, tenderId);
+        }
       });
       throw error;
     }

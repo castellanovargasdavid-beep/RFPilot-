@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { CreditReason } from "@prisma/client";
+import type { CreditReason, Prisma } from "@prisma/client";
 
 /** El saldo de créditos es el balanceAfter de la entrada más reciente del ledger (append-only). */
 export async function getCreditBalance(organizationId: string): Promise<number> {
@@ -9,6 +9,15 @@ export async function getCreditBalance(organizationId: string): Promise<number> 
     select: { balanceAfter: true },
   });
   return last?.balanceAfter ?? 0;
+}
+
+/** El plan Agencia es "análisis ilimitados" — no pasa por el ledger de créditos en absoluto. */
+export async function hasUnlimitedCredits(organizationId: string): Promise<boolean> {
+  const subscription = await prisma.subscription.findUnique({
+    where: { organizationId },
+    select: { plan: true, status: true },
+  });
+  return subscription?.plan === "AGENCY" && subscription.status === "ACTIVE";
 }
 
 export class InsufficientCreditsError extends Error {
@@ -49,6 +58,36 @@ export async function consumeCredits(
           reason,
           relatedTenderId,
           balanceAfter: currentBalance - amount,
+        },
+      });
+    },
+    { isolationLevel: "Serializable" }
+  );
+}
+
+/** Añade créditos al ledger (compra pay-as-you-go, renovación mensual del plan Pro...). */
+export async function grantCredits(
+  organizationId: string,
+  amount: number,
+  reason: CreditReason,
+  metadata?: Prisma.InputJsonValue
+): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      const last = await tx.creditLedgerEntry.findFirst({
+        where: { organizationId },
+        orderBy: { createdAt: "desc" },
+        select: { balanceAfter: true },
+      });
+      const currentBalance = last?.balanceAfter ?? 0;
+
+      await tx.creditLedgerEntry.create({
+        data: {
+          organizationId,
+          delta: amount,
+          reason,
+          balanceAfter: currentBalance + amount,
+          metadata,
         },
       });
     },

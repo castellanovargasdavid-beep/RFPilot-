@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getApiMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
 import { inngest } from "@/inngest/client";
-import { consumeCredits, InsufficientCreditsError } from "@/server/billing/credits";
+import { consumeCredits, hasUnlimitedCredits, InsufficientCreditsError } from "@/server/billing/credits";
 import { CREDIT_COST_TENDER_ANALYSIS } from "@/lib/plans";
 
 const ANALYZABLE_STATUSES = ["EXTRACTED", "ANALYSIS_FAILED"];
@@ -28,13 +28,16 @@ export async function POST(_request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: "no_extracted_text" }, { status: 400 });
   }
 
-  try {
-    await consumeCredits(membership.organizationId, CREDIT_COST_TENDER_ANALYSIS, "TENDER_ANALYSIS", tender.id);
-  } catch (error) {
-    if (error instanceof InsufficientCreditsError) {
-      return NextResponse.json({ error: "insufficient_credits" }, { status: 402 });
+  const unlimited = await hasUnlimitedCredits(membership.organizationId);
+  if (!unlimited) {
+    try {
+      await consumeCredits(membership.organizationId, CREDIT_COST_TENDER_ANALYSIS, "TENDER_ANALYSIS", tender.id);
+    } catch (error) {
+      if (error instanceof InsufficientCreditsError) {
+        return NextResponse.json({ error: "insufficient_credits" }, { status: 402 });
+      }
+      throw error;
     }
-    throw error;
   }
 
   await prisma.tender.update({
