@@ -2,9 +2,12 @@ import Link from "next/link";
 import { FileSearch, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TenderStatusBadge } from "@/components/tenders/status-badge";
 import { requireActiveMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
+import { formatDate } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const membership = await requireActiveMembership();
@@ -12,7 +15,7 @@ export default async function DashboardPage() {
   const tenders = await prisma.tender.findMany({
     where: { organizationId: membership.organizationId },
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 50,
   });
 
   return (
@@ -37,8 +40,8 @@ export default async function DashboardPage() {
               <FileSearch className="h-6 w-6" />
             </div>
             <div className="space-y-1">
-              <CardTitle className="text-base">Aún no has analizado ninguna licitación</CardTitle>
-              <CardDescription>Sube tu primer pliego en PDF para ver el semáforo de elegibilidad.</CardDescription>
+              <p className="font-medium">Aún no has analizado ninguna licitación</p>
+              <p className="text-sm text-muted-foreground">Sube tu primer pliego en PDF para ver el semáforo de elegibilidad.</p>
             </div>
             <Button asChild>
               <Link href="/dashboard/upload">
@@ -50,15 +53,32 @@ export default async function DashboardPage() {
         </Card>
       ) : (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Historial de análisis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              {tenders.length} licitación{tenders.length === 1 ? "" : "es"} —
-              la vista detallada llega en la Fase 2 (subida y extracción de PDF).
-            </p>
-          </CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Licitación</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Páginas</TableHead>
+                <TableHead>Subida</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tenders.map((tender) => (
+                <TableRow key={tender.id} className="cursor-pointer">
+                  <TableCell>
+                    <Link href={`/dashboard/tenders/${tender.id}`} className="font-medium hover:underline">
+                      {tender.title}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <TenderStatusBadge status={tender.status} />
+                  </TableCell>
+                  <TableCell>{tender.pageCount ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(tender.createdAt)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </Card>
       )}
     </div>

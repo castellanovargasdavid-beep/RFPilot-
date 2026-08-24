@@ -35,6 +35,11 @@ export async function requireActiveMembership() {
   return membership;
 }
 
+/** Variante para Route Handlers: nunca redirige, devuelve null si no hay sesión/membership. */
+export async function getApiMembership() {
+  return getActiveMembership();
+}
+
 export async function requireRole(roles: OrgRole[]) {
   const membership = await requireActiveMembership();
   if (!roles.includes(membership.role)) {

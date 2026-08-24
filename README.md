@@ -59,8 +59,20 @@ npm run prisma:seed      # crea una organización de demo (demo@rfpilot.dev / de
 npm run dev
 ```
 
+En otra terminal, arranca también el Inngest Dev Server (orquesta el
+pipeline de extracción/análisis en segundo plano; sin esto, un pliego
+subido se queda en estado "Subiendo" para siempre):
+
+```bash
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+```
+
 Abre http://localhost:3000. Crea una cuenta desde `/register` (incluye 1
 crédito gratis) o usa el usuario de demo del seed.
+
+Sin `BLOB_READ_WRITE_TOKEN` configurada, la subida de PDFs usa
+automáticamente un fallback a disco local (`.local-blob-storage/`, ya en
+`.gitignore`) — no hace falta cuenta de Vercel para desarrollar en local.
 
 ## Scripts
 
@@ -92,5 +104,9 @@ imprescindibles para arrancar.
 
 ## Estado del proyecto
 
-En construcción por fases (ver commits). Fase actual: **1 — esqueleto del
-proyecto, auth y base de datos**.
+En construcción por fases (ver commits). Completadas:
+
+1. Esqueleto del proyecto, auth y base de datos.
+2. Subida de PDF (drag & drop) + extracción de texto (con fallback OCR
+   para pliegos escaneados), procesado async vía Inngest con estados en
+   tiempo real (subiendo → extrayendo → listo).

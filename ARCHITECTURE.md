@@ -65,9 +65,12 @@ Pasos encadenados, cada uno versionado (`TenderAnalysis.promptVersion`) y
 guardado como una nueva versión de análisis (nunca se sobreescribe el
 anterior, para poder comparar/regenerar):
 
-1. **Extracción de texto y estructura** (Fase 2) — `pdf-parse`/`pdfjs`, con
-   fallback OCR (Tesseract.js) si el ratio de caracteres extraídos por
-   página cae por debajo de un umbral (indicio de PDF escaneado).
+1. **Extracción de texto y estructura** (Fase 2, implementada) —
+   `pdfjs-dist` para el texto nativo del PDF, con fallback OCR (Tesseract.js
+   + renderizado de página con `@napi-rs/canvas`) si el ratio de caracteres
+   extraídos por página cae por debajo de un umbral (indicio de PDF
+   escaneado). Ver "Extracción de PDF" más abajo para el detalle y los
+   problemas reales encontrados al construirlo.
 2. **Extracción de requisitos excluyentes + criterios de baremo** (Fase 3) —
    tool use de Claude con JSON Schema, validado con Zod; documento completo
    en el contexto (hasta ~150 páginas) con `cache_control` para reutilizarlo
@@ -86,6 +89,70 @@ RAG/embeddings quedan reservados para pliegos anómalamente largos (>300
 páginas) o para el buscador de boletines oficiales — no para el caso normal,
 donde la ventana de contexto larga de Claude permite pasar el documento
 completo.
+
+## Extracción de PDF
+
+Decisiones tomadas al construir la Fase 2, con la razón empírica detrás:
+
+- **`pdf-parse` descartado.** Es la librería "obvia" para esto, pero no se
+  actualiza desde 2018 y bundlea una versión de pdf.js de esa misma época.
+  Al probarla contra un PDF generado con una herramienta moderna (`pdfkit`),
+  fallaba con `FormatError: bad XRef entry` — un PDF perfectamente válido.
+  Se sustituyó por `pdfjs-dist` (Mozilla, mantenido activamente) para
+  extraer texto directamente vía `page.getTextContent()`, que además es la
+  misma librería que ya hacía falta para renderizar páginas en el fallback
+  de OCR — una dependencia de PDF menos que mantener.
+- **OCR sin CDN en runtime.** Tesseract.js por defecto descarga el modelo de
+  idioma (`spa.traineddata.gz`, unos 2-8MB) de un CDN la primera vez que se
+  usa. Eso es lento en cold starts serverless y, más importante, puede estar
+  bloqueado por políticas de red/egress en el entorno de despliegue (nos
+  pasó exactamente eso en el entorno de build de este proyecto). Se
+  empaquetan los modelos de idioma como dependencias npm normales
+  (`@tesseract.js-data/spa`, `@tesseract.js-data/eng`) y se apunta
+  `langPath` a la carpeta local — cero llamadas de red en el pipeline de
+  OCR.
+- **Render de página para OCR sin dependencias nativas de sistema.** Para
+  rasterizar una página de PDF a imagen (necesario antes de pasarla a
+  Tesseract) hace falta un canvas. `node-canvas` (el paquete `canvas`)
+  requiere cairo/pango/libjpeg instalados a nivel de sistema operativo, lo
+  que es frágil en serverless. `@napi-rs/canvas` trae binarios prebuilt por
+  plataforma (napi-rs), sin dependencias de sistema, y es compatible con el
+  `canvasFactory` que `pdfjs-dist` espera en Node.
+- **`next.config.mjs`: `serverComponentsExternalPackages`.** `@napi-rs/canvas`
+  incluye un binario nativo (`.node`); si webpack intenta bundlearlo, el
+  build falla ("Module parse failed"). Y si un paquete que usa `__dirname`
+  para localizar un asset junto a su código (como `@tesseract.js-data/*`)
+  se bundlea, `__dirname` deja de apuntar a la carpeta real en disco y el
+  asset no se encuentra en runtime — nos pasó exactamente así con
+  `spa.traineddata.gz` hasta añadir también `@tesseract.js-data/*` a la
+  lista de externos. Todos los paquetes con binarios nativos o assets
+  resueltos por ruta de archivo van en `experimental.serverComponentsExternalPackages`.
+- **Límite de páginas en OCR.** Tesseract.js puro es notablemente más lento
+  que un servicio de OCR gestionado. Se limita a las primeras 40 páginas
+  (`MAX_OCR_PAGES` en `src/server/pdf/ocr.ts`) para acotar el tiempo de
+  proceso; si el documento tiene más, se avisa al usuario en vez de
+  colgar el pipeline. Migrar a un proveedor de OCR en la nube es la vía
+  natural de escalar esto si se vuelve un cuello de botella real.
+
+## Subida de archivos
+
+- **Subida directa a Blob desde el navegador, no a través de la función
+  serverless.** Vercel limita a ~4.5MB el body de las funciones serverless
+  — insuficiente para un pliego escaneado de 150 páginas. El cliente pide
+  un token firmado a `/api/blob/upload` (que valida la sesión antes de
+  emitirlo) y sube el archivo directo a Vercel Blob con `@vercel/blob/client`.
+  El servidor nunca ve los bytes del PDF en ese camino.
+- **Fallback de almacenamiento local (`src/server/storage/local.ts`).** Sin
+  `BLOB_READ_WRITE_TOKEN` configurado (desarrollo sin cuenta de Vercel), la
+  subida cae a un endpoint normal (`/api/tenders/upload-local`) que escribe
+  en `.local-blob-storage/` (gitignored). El resto del pipeline
+  (extracción, descarga autenticada) es agnóstico de cuál de los dos
+  backends se usó — pasa siempre por `fetchStoredFile()`.
+- **Descarga del PDF original solo vía proxy autenticado**
+  (`/api/tenders/[id]/file`), nunca enlazando la URL de Blob directamente
+  desde el cliente: así el control de acceso (¿pertenece esta licitación a
+  la organización del usuario?) se aplica siempre, independientemente de si
+  alguien adivinara o filtrara la URL del blob.
 
 ## Riesgos aceptados
 

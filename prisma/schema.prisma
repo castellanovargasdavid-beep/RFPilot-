@@ -246,6 +246,7 @@ enum TenderStatus {
   UPLOADING
   EXTRACTING
   EXTRACTION_FAILED
+  EXTRACTED // texto listo, análisis IA aún no lanzado (Fase 3)
   ANALYZING
   ANALYSIS_FAILED
   READY

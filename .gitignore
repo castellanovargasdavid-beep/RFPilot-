@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# almacenamiento local de desarrollo (fallback sin Vercel Blob)
+/.local-blob-storage/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
