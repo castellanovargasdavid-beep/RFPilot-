@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Calendar,
@@ -50,11 +51,13 @@ interface ExecutiveSummary {
 }
 
 export function TenderStatusView({ initial }: { initial: TenderDetail }) {
+  const router = useRouter();
   const [tender, setTender] = useState(initial);
   const [retrying, setRetrying] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [updatingEligibility, setUpdatingEligibility] = useState(false);
+  const [generatingProposal, setGeneratingProposal] = useState(false);
 
   useEffect(() => {
     if (!POLLING_STATUSES.includes(tender.status)) return;
@@ -102,6 +105,16 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
       if (refreshed.ok) setTender(await refreshed.json());
     }
     setUpdatingEligibility(false);
+  }
+
+  async function handleGenerateProposal() {
+    setGeneratingProposal(true);
+    const res = await fetch(`/api/tenders/${tender.id}/proposal`, { method: "POST" });
+    if (res.ok) {
+      router.push(`/dashboard/tenders/${tender.id}/proposal`);
+      return;
+    }
+    setGeneratingProposal(false);
   }
 
   const analysis = tender.analyses[0];
@@ -305,9 +318,9 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
             </Card>
           )}
 
-          <Button disabled className="opacity-60">
-            <Sparkles className="h-4 w-4" />
-            Generar borrador de propuesta (próximamente — Fase 5)
+          <Button onClick={handleGenerateProposal} disabled={generatingProposal}>
+            {generatingProposal ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Generar borrador de propuesta
           </Button>
         </div>
       )}

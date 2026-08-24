@@ -416,6 +416,7 @@ enum ProposalStatus {
   DRAFT
   GENERATING
   READY
+  FAILED
 }
 
 enum SectionStatus {
@@ -433,8 +434,9 @@ model ProposalDraft {
   companyProfileId String?
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
 
-  title  String
-  status ProposalStatus @default(DRAFT)
+  title        String
+  status       ProposalStatus @default(DRAFT)
+  errorMessage String?
 
   sections ProposalSection[]
   exports  ProposalExport[]
@@ -458,6 +460,7 @@ model ProposalSection {
   instructions    String? @db.Text // qué exige el pliego para esta sección
   content         String? @db.Text // markdown
   status          SectionStatus @default(EMPTY)
+  errorMessage    String?
   wordCountTarget Int?
 
   createdAt DateTime @default(now())

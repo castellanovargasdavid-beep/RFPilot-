@@ -17,6 +17,11 @@ type Events = {
       companyProfileId?: string;
     };
   };
+  "proposal/outline.requested": {
+    data: {
+      draftId: string;
+    };
+  };
   "proposal/section.generation.requested": {
     data: {
       sectionId: string;

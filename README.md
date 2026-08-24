@@ -121,3 +121,6 @@ En construcción por fases (ver commits). Completadas:
    referencias, equipo) y motor de cruce determinista contra los
    requisitos excluyentes — el semáforo real, con 47 tests unitarios sobre
    la lógica de negocio más crítica del producto.
+5. Generador de borrador de propuesta: índice generado por IA según la
+   estructura exigida por el pliego, editor en árbol con regeneración por
+   sección, y exportación real a Word (.docx) y PDF.

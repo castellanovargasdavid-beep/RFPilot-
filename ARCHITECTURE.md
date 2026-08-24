@@ -87,11 +87,26 @@ anterior, para poder comparar/regenerar):
    requisito. Se ejecuta automáticamente al final del análisis de la Fase
    3 y se puede recalcular gratis (botón "Actualizar semáforo") cada vez
    que el usuario edita su perfil. Ver el detalle más abajo.
-4. **Generación del índice de propuesta** (Fase 5) — a partir de la
-   estructura exigida por el pliego.
-5. **Generación de contenido por sección bajo demanda** (Fase 5) — nunca
-   todas las secciones de golpe; cada sección es una llamada independiente
-   ("regenerar esta sección") para controlar coste y permitir iteración.
+4. **Generación del índice de propuesta** (Fase 5, implementada) —
+   `src/ai/generate-proposal-outline.ts`, misma llamada de tipo
+   "structured output" que el paso (b) (Zod v4 + `zodOutputFormat`, mismo
+   `runStructuredExtraction` compartido), reutilizando el bloque de
+   sistema cacheado del pliego. El schema es recursivo (`z.lazy`) para
+   modelar secciones con subsecciones; el árbol resultante se persiste
+   como `ProposalSection` (parentId/children) vía inserción recursiva.
+5. **Generación de contenido por sección bajo demanda** (Fase 5,
+   implementada) — `src/ai/generate-section-content.ts`. A diferencia de
+   los pasos (b)/(d), esta es una llamada de **texto libre** (markdown),
+   no structured output: aquí el objetivo es prosa persuasiva, no datos
+   que validar contra un schema. Nunca se generan todas las secciones de
+   golpe: cada sección es un evento Inngest independiente
+   (`proposal/section.generation.requested`), disparado al pulsar
+   "Generar"/"Regenerar con IA" en esa sección concreta — controla coste y
+   permite iterar sección por sección. El prompt combina el pliego
+   cacheado + las instrucciones de esa sección + un resumen en texto plano
+   del perfil de empresa (`src/server/company-profile/summarize.ts`), con
+   una instrucción explícita de no inventar datos que no estén en el
+   perfil.
 
 RAG/embeddings quedan reservados para pliegos anómalamente largos (>300
 páginas) o para el buscador de boletines oficiales — no para el caso normal,
@@ -267,6 +282,41 @@ nº de referencias) — nunca por ausencia de datos.
   automáticamente vacío en el primer acceso a `/dashboard/profile`. El
   selector de perfil por cliente queda para cuando se aborde el plan
   Agencia (Fase 6).
+
+## Generador de propuesta y exportación (Fase 5)
+
+- **`runStructuredExtraction` compartido entre análisis (Fase 3) e índice
+  de propuesta (Fase 5).** Ambos son "dame JSON validado por mi schema a
+  partir del pliego completo" — se extrajo el bucle de llamada+reintento a
+  `src/ai/run-structured.ts` en vez de duplicarlo. La generación de
+  contenido de sección es deliberadamente distinta (texto libre, sin
+  `output_config.format`) porque ahí el objetivo es prosa, no datos.
+- **Créditos: la generación del borrador NO consume un crédito aparte.**
+  El modelo de precios del producto es "$29/licitación" o "5
+  análisis/borradores al mes" — una unidad de valor por licitación, no por
+  sección regenerada N veces. El coste real de cada llamada se sigue
+  registrando en `AiUsageLog` (steps `proposal-outline` y
+  `section-generation`) para poder vigilar el margen si el uso de
+  "regenerar" resulta más caro de lo asumido; endurecer esto (p.ej. límite
+  de regeneraciones por sección) es la palanca obvia si hace falta.
+- **Export a Word y PDF desde el mismo árbol de secciones, sin pasar por
+  Markdown-a-HTML-a-lo que sea.** `src/server/proposals/section-tree.ts`
+  aplana el árbol anidado que devuelve Prisma (cuya profundidad de tipos
+  está fijada por el `include`) a un tipo autorreferencial simple; tanto
+  `export-docx.ts` (paquete `docx`) como `export-pdf.tsx`
+  (`@react-pdf/renderer`) recorren ese mismo árbol aplanado. El "markdown"
+  que genera Claude para el contenido de cada sección es deliberadamente
+  mínimo (negrita con `**`, listas con `- `) — se parsea a mano en ambos
+  exportadores en vez de traer una librería de markdown completa, porque
+  es la única sintaxis que se le pide al modelo que use.
+- **Probado end-to-end con un árbol de secciones sintético** (sin
+  `ANTHROPIC_API_KEY` disponible en este entorno): edición manual y
+  guardado de una sección, regeneración con fallo controlado (sin
+  credencial) que preserva el contenido previo en vez de borrarlo, y
+  exportación real a `.docx` y `.pdf` — verificado abriendo ambos ficheros
+  (estructura de encabezados por profundidad, negrita, viñetas y
+  placeholder de "sección pendiente de generar" correctos en los dos
+  formatos).
 
 ## Riesgos aceptados
 
