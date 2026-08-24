@@ -461,6 +461,23 @@ nº de referencias) — nunca por ausencia de datos.
   (Playwright)**, todos verdes. `npm run test:e2e` corre el E2E;
   `npm run test`, el resto.
 
+## Despliegue en Vercel — Prisma Client desactualizado con caché de dependencias
+
+Primer intento real de despliegue en Vercel: el build fallaba en
+`Collecting page data` con `PrismaClientInitializationError` en las rutas
+que importan `@prisma/client` (`/api/billing/checkout`,
+`/api/billing/portal`), aunque `npm run build` pasaba sin problema en
+local. Causa: Vercel cachea `node_modules` entre builds para acelerar
+`npm install`; cuando reutiliza la caché no vuelve a disparar la
+generación del cliente de Prisma (que normalmente ocurre como efecto
+colateral de `npm install` en una instalación limpia), así que el
+`@prisma/client` empaquetado queda desactualizado o directamente sin
+generar. Localmente nunca se reproduce porque el cliente ya estaba
+generado de ejecuciones anteriores de `prisma:generate`/`db:push`. Fix
+recomendado por Prisma para este caso exacto: un script `postinstall` en
+`package.json` que corre `prisma generate` siempre, tenga o no caché
+`node_modules` reutilizada — `"postinstall": "prisma generate"`.
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`
