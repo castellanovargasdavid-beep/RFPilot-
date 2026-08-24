@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,7 @@ export function BasicInfoCard({ profile, onSaved }: { profile: CompanyProfileVie
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    await fetch("/api/company-profile", {
+    const res = await fetch("/api/company-profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -35,7 +36,12 @@ export function BasicInfoCard({ profile, onSaved }: { profile: CompanyProfileVie
       }),
     });
     setSaving(false);
-    onSaved();
+    if (res.ok) {
+      toast.success("Datos generales guardados");
+      onSaved();
+    } else {
+      toast.error("No se pudieron guardar los cambios");
+    }
   }
 
   return (

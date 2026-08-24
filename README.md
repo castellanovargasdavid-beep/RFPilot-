@@ -50,8 +50,16 @@ servicio" más abajo.
 ```bash
 npx prisma db push       # aplica el schema (desarrollo)
 npx prisma migrate dev   # alternativa con migraciones versionadas
-npm run prisma:seed      # crea una organización de demo (demo@rfpilot.dev / demo12345)
+npm run prisma:seed      # crea una organización de demo con datos de ejemplo completos
 ```
+
+El seed crea el usuario `demo@rfpilot.dev` / `demo12345` con una
+licitación de ejemplo ya lista (pliego ficticio real de "mantenimiento de
+sistemas informáticos", extracción de texto ejecutada de verdad, semáforo
+de elegibilidad calculado por el motor real contra un perfil de empresa
+deliberadamente incompleto) y un borrador de propuesta parcialmente
+redactado — para poder ver el producto completo funcionando sin necesitar
+una `ANTHROPIC_API_KEY` ni depender de subir tus propios documentos.
 
 ### 5. Arrancar
 
@@ -133,3 +141,8 @@ En construcción por fases (ver commits). Completadas:
    compra de créditos pay-as-you-go), portal de facturación, webhooks
    idempotentes, y plan Agencia con análisis realmente ilimitados (no un
    número grande de créditos).
+7. Pulido de UI: skeletons de carga, boundaries de error, notificaciones
+   toast en las acciones clave, y un pliego ficticio realista de
+   licitación pública española con perfil de empresa y borrador de
+   propuesta de ejemplo (`npm run prisma:seed`) para probar el flujo
+   completo sin depender de una API key.

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ export function TeamCard({ profile, onChanged }: { profile: CompanyProfileView; 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    await fetch("/api/company-profile/team", {
+    const res = await fetch("/api/company-profile/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -37,6 +38,11 @@ export function TeamCard({ profile, onChanged }: { profile: CompanyProfileView; 
       }),
     });
     setSaving(false);
+    if (!res.ok) {
+      toast.error("No se pudo añadir el miembro del equipo");
+      return;
+    }
+    toast.success("Miembro del equipo añadido");
     setOpen(false);
     setName("");
     setRole("");
@@ -45,7 +51,8 @@ export function TeamCard({ profile, onChanged }: { profile: CompanyProfileView; 
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/company-profile/team/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/company-profile/team/${id}`, { method: "DELETE" });
+    if (res.ok) toast.success("Miembro eliminado");
     onChanged();
   }
 

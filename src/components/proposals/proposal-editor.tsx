@@ -12,6 +12,7 @@ import {
   RotateCw,
   XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -91,7 +92,7 @@ export function ProposalEditor({ initial, tenderId }: { initial: ProposalDraftDe
   async function handleSave() {
     if (!selectedId) return;
     setSaving(true);
-    await fetch(`/api/proposal-sections/${selectedId}`, {
+    const patchRes = await fetch(`/api/proposal-sections/${selectedId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: contentDraft }),
@@ -99,12 +100,22 @@ export function ProposalEditor({ initial, tenderId }: { initial: ProposalDraftDe
     const res = await fetch(`/api/proposals/${draft.id}`);
     if (res.ok) setDraft(await res.json());
     setSaving(false);
+    if (patchRes.ok) {
+      toast.success("Sección guardada");
+    } else {
+      toast.error("No se pudo guardar la sección");
+    }
   }
 
   async function handleRegenerate() {
     if (!selectedId) return;
     setRegenerating(true);
-    await fetch(`/api/proposal-sections/${selectedId}/generate`, { method: "POST" });
+    const genRes = await fetch(`/api/proposal-sections/${selectedId}/generate`, { method: "POST" });
+    if (genRes.ok) {
+      toast.info("Regenerando sección con IA…");
+    } else {
+      toast.error("No se pudo iniciar la regeneración");
+    }
     const res = await fetch(`/api/proposals/${draft.id}`);
     if (res.ok) setDraft(await res.json());
     setRegenerating(false);
@@ -127,6 +138,9 @@ export function ProposalEditor({ initial, tenderId }: { initial: ProposalDraftDe
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      toast.success(`Exportado a ${format === "DOCX" ? "Word" : "PDF"}`);
+    } else {
+      toast.error("No se pudo generar la exportación");
     }
     setExporting(null);
   }

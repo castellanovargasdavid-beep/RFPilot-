@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,19 +28,25 @@ export function RevenueCard({ profile, onChanged }: { profile: CompanyProfileVie
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    await fetch("/api/company-profile/revenue", {
+    const res = await fetch("/api/company-profile/revenue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ year: Number(year), amount: Number(amount) }),
     });
     setSaving(false);
+    if (!res.ok) {
+      toast.error("No se pudo guardar la facturación");
+      return;
+    }
+    toast.success("Facturación guardada");
     setOpen(false);
     setAmount("");
     onChanged();
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/company-profile/revenue/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/company-profile/revenue/${id}`, { method: "DELETE" });
+    if (res.ok) toast.success("Ejercicio eliminado");
     onChanged();
   }
 

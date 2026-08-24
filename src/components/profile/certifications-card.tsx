@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, Loader2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,12 +32,17 @@ export function CertificationsCard({ profile, onChanged }: { profile: CompanyPro
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    await fetch("/api/company-profile/certifications", {
+    const res = await fetch("/api/company-profile/certifications", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, issuer: issuer || null, expiresAt: expiresAt || null }),
     });
     setSaving(false);
+    if (!res.ok) {
+      toast.error("No se pudo añadir la certificación");
+      return;
+    }
+    toast.success("Certificación añadida");
     setOpen(false);
     setName("");
     setIssuer("");
@@ -45,7 +51,8 @@ export function CertificationsCard({ profile, onChanged }: { profile: CompanyPro
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/company-profile/certifications/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/company-profile/certifications/${id}`, { method: "DELETE" });
+    if (res.ok) toast.success("Certificación eliminada");
     onChanged();
   }
 

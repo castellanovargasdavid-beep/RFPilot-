@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   Calendar,
@@ -103,6 +104,9 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
     if (res.ok) {
       const refreshed = await fetch(`/api/tenders/${tender.id}`);
       if (refreshed.ok) setTender(await refreshed.json());
+      toast.success("Semáforo actualizado");
+    } else {
+      toast.error("No se pudo actualizar el semáforo");
     }
     setUpdatingEligibility(false);
   }
@@ -114,6 +118,7 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
       router.push(`/dashboard/tenders/${tender.id}/proposal`);
       return;
     }
+    toast.error("No se pudo generar el borrador de propuesta");
     setGeneratingProposal(false);
   }
 

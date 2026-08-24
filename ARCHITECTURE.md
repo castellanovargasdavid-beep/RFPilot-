@@ -359,6 +359,45 @@ nº de referencias) — nunca por ausencia de datos.
   producción — ver README.md para la configuración del CLI de Stripe en
   local (`stripe listen`).
 
+## Datos de demo (Fase 7)
+
+- **Pliego ficticio realista, no un PDF de relleno.** `prisma/fixtures/mock-tender-content.ts`
+  define el contenido de un pliego español de "Servicio de mantenimiento
+  de sistemas informáticos" (4 páginas, clausulado numerado, solvencia
+  económica/técnica, certificaciones ISO 9001/ISO 27001/ENS, baremo con
+  pesos) con lenguaje real de pliego (incluyendo giros como "2 (dos)
+  contratos" que casi rompen el parser de referencias del motor de cruce —
+  ver más abajo). `scripts/generate-mock-tender-pdf.ts` lo renderiza a PDF
+  con `pdfkit` (devDependency, no se usa en runtime de la app); el PDF
+  resultante se commitea en `prisma/fixtures/pliego-mantenimiento-informatico.pdf`.
+- **El seed corre el pipeline real, no solo inserta filas.** `prisma/seed.ts`
+  sube el PDF al storage local, ejecuta `extractTenderDocument()` (Fase 2,
+  código real) para obtener el texto, y ejecuta
+  `runEligibilityCrossCheck()` (Fase 4, código real) contra un
+  `CompanyProfile` de demo deliberadamente incompleto (le falta ISO 27001,
+  la facturación media no llega al mínimo exigido). Lo único "sintético"
+  es el `TenderAnalysis` en sí — los 8 `ExclusionRequirement` y 4
+  `ScoringCriterion` se insertan a mano porque no hay `ANTHROPIC_API_KEY`
+  en el entorno de build, para no depender de una llamada real a Claude
+  solo para tener una demo. El resultado: `npm run prisma:seed` deja una
+  licitación `READY` con semáforo **RED real** (score 57/100, calculado
+  por el motor determinista, no hardcodeado) — un caso instructivo de "casi
+  cumples, pero no del todo", justo el problema que el producto existe
+  para resolver.
+- **Detalle real encontrado al escribir el fixture**: el regex de
+  extracción de "nº de referencias exigidas" (`extractReferenceCountRequirement`,
+  Fase 4) no reconoce "2 (dos) contratos" — el inciso entre paréntesis
+  rompe la adyacencia dígito→palabra clave que el regex espera. En
+  producción esto no es un problema porque el campo `description` que
+  genera Claude es una paráfrasis limpia ("al menos 2 contratos..."), no
+  una copia literal del pliego — el matcher opera sobre `description`
+  antes que sobre `citationText`. Al escribir los datos sintéticos del
+  seed a mano hay que recordar imitar esa paráfrasis limpia en
+  `description` y dejar el "(dos)" solo en `citationText`, donde no
+  afecta al cruce.
+- **`npm run prisma:seed` es idempotente**: si el usuario demo ya existe,
+  no hace nada (evita duplicar la licitación de demo en reseeds).
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`
