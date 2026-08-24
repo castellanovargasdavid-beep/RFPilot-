@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { requireActiveMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
+import { tenderDetailSelect } from "@/server/tenders/detail-select";
 import { TenderStatusView } from "@/components/tenders/tender-status-view";
 
 export default async function TenderDetailPage({ params }: { params: { id: string } }) {
@@ -9,17 +10,7 @@ export default async function TenderDetailPage({ params }: { params: { id: strin
 
   const tender = await prisma.tender.findFirst({
     where: { id: params.id, organizationId: membership.organizationId },
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      statusMessage: true,
-      pageCount: true,
-      extractedTextIsOcr: true,
-      extractionMethod: true,
-      fileName: true,
-      fileSizeBytes: true,
-    },
+    select: tenderDetailSelect,
   });
 
   if (!tender) {

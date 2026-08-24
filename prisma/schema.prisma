@@ -334,6 +334,9 @@ model TenderAnalysis {
 
   eligibilityStatus EligibilityStatus?
   eligibilityScore  Float? // 0-100, heurística ponderada
+  /// true si el pliego no tenía una sección de requisitos/solvencia clara y
+  /// la extracción es una mejor estimación (ver ARCHITECTURE.md, pipeline IA).
+  requirementsSectionUnclear Boolean @default(false)
 
   requirements      ExclusionRequirement[]
   scoringCriteria   ScoringCriterion[]

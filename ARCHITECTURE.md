@@ -71,10 +71,16 @@ anterior, para poder comparar/regenerar):
    extraídos por página cae por debajo de un umbral (indicio de PDF
    escaneado). Ver "Extracción de PDF" más abajo para el detalle y los
    problemas reales encontrados al construirlo.
-2. **Extracción de requisitos excluyentes + criterios de baremo** (Fase 3) —
-   tool use de Claude con JSON Schema, validado con Zod; documento completo
-   en el contexto (hasta ~150 páginas) con `cache_control` para reutilizarlo
-   en los pasos siguientes sin volver a pagar el coste de prefill.
+2. **Extracción de requisitos excluyentes + criterios de baremo + resumen
+   ejecutivo** (Fase 3, implementada) — una sola llamada a Claude Opus 5
+   (`src/ai/analyze-tender.ts`) vía `client.messages.stream(...)` +
+   `output_config.format: zodOutputFormat(schema)` (structured outputs,
+   GA — no `tool_choice` forzado ni beta), con `thinking: {type:
+   "adaptive"}` y `effort: "high"`. El pliego completo va en un bloque de
+   `system` marcado `cache_control: {type:"ephemeral"}`
+   (`src/ai/context.ts`), compartido con los pasos de la Fase 5 para
+   reutilizar el prefill. Si `parsed_output` no valida contra el schema
+   Zod, reintenta hasta 3 veces indicándole al modelo el error concreto.
 3. **Cruce contra el perfil de empresa** (Fase 4) — lógica determinista en
    TypeScript sobre los datos ya estructurados (no una nueva llamada a
    Claude por requisito), con un fallback asistido por IA solo para
@@ -153,6 +159,65 @@ Decisiones tomadas al construir la Fase 2, con la razón empírica detrás:
   desde el cliente: así el control de acceso (¿pertenece esta licitación a
   la organización del usuario?) se aplica siempre, independientemente de si
   alguien adivinara o filtrara la URL del blob.
+
+## Pipeline de IA — detalle de implementación (Fase 3)
+
+- **Modelo: `claude-opus-5` en todo el pipeline, sin excepciones.** La
+  extracción de requisitos excluyentes es la lógica más crítica del
+  producto — un falso negativo/positivo le cuesta la licitación al
+  cliente — así que no se degrada a un modelo más barato para ahorrar
+  coste sin que el usuario lo pida explícitamente. El coste real por
+  análisis se mide y se expone (`AiUsageLog`, `src/ai/pricing.ts`) para
+  que la decisión de optimizar coste, si hace falta, sea del usuario.
+- **Structured outputs, no tool use forzado.** Se usa
+  `output_config.format` con `zodOutputFormat(schema)` (helper oficial del
+  SDK) en vez de definir una tool y forzar `tool_choice` — es el mecanismo
+  recomendado actual para "quiero JSON validado por mi schema Zod", más
+  directo que simular structured output con tool use. `response.parsed_output`
+  llega ya tipado y validado; si es `null` (el modelo no cumplió el
+  schema), se reintenta.
+- **Zod v4 solo para los schemas de IA.** El helper `zodOutputFormat` del
+  SDK de Anthropic espera instancias de `zod/v4`, no de `zod` v3 (que es
+  lo que usa el resto de la app — formularios, validación de API routes).
+  Zod 3.25+ empaqueta ambas APIs en el mismo paquete, así que no hace
+  falta una segunda dependencia: los schemas en `src/ai/schemas/*.ts`
+  importan explícitamente `from "zod/v4"`, y son los únicos archivos del
+  proyecto que lo hacen — el resto sigue con `import { z } from "zod"`
+  (v3) con normalidad.
+- **Streaming en vez de `.parse()` no-streaming.** El pliego completo
+  entra como prefill (hasta ~150 páginas), lo que puede alargar la
+  petición más allá de lo prudente para una llamada no-streaming.
+  `client.messages.stream(...)` + `stream.finalMessage()` soporta
+  `output_config.format` igual que `.parse()` y evita timeouts
+  intermedios — con un `timeout` explícito de 10 minutos por request.
+- **Créditos: descuento síncrono, reembolso automático si falla.** El
+  crédito se descuenta en la API route que dispara el análisis
+  (`POST /api/tenders/[id]/analyze`), no dentro de la función async — así
+  el usuario ve el saldo actualizado al instante y no puede lanzar el
+  mismo análisis dos veces con el mismo crédito. `CreditLedgerEntry` es un
+  ledger append-only con lectura+escritura en una transacción
+  `Serializable` (`src/server/billing/credits.ts`) para que dos análisis
+  concurrentes no puedan ambos leer saldo suficiente y dejarlo en
+  negativo. Si el análisis falla de forma irrecuperable, la función de
+  Inngest reembolsa el crédito automáticamente (`reason: REFUND`).
+- **`TenderAnalysis` versionado.** Cada ejecución del análisis crea una
+  fila nueva (`version` incremental) en vez de sobreescribir la anterior
+  — permite comparar resultados si se regenera y correlacionar con
+  `promptVersion` al depurar una regresión de calidad tras cambiar el
+  prompt.
+- **Manejo de "pliego sin sección de requisitos clara".** El propio
+  schema exige que el modelo declare `requirementsSectionUnclear: true`
+  cuando no encuentra una sección de solvencia/admisión delimitada, en
+  vez de devolver un array vacío sin más contexto — la UI muestra un
+  aviso explícito en vez de dar a entender silenciosamente "sin
+  requisitos excluyentes".
+- **No probado contra la API real de Claude en este entorno de build**
+  (sin `ANTHROPIC_API_KEY` disponible en el sandbox de construcción). Se
+  verificó en cambio el resto del pipeline end-to-end con Postgres +
+  Inngest Dev Server reales: descuento de crédito, disparo del evento,
+  fallo controlado por falta de credencial, reembolso automático, y
+  reflejo correcto del estado en la UI (`ANALYZING` → `ANALYSIS_FAILED`
+  con reintento). Verificar con una clave real antes de producción.
 
 ## Riesgos aceptados
 

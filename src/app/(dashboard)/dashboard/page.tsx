@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TenderStatusBadge } from "@/components/tenders/status-badge";
 import { requireActiveMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
-import { formatDate } from "@/lib/utils";
+import { formatDate, daysUntil } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const membership = await requireActiveMembership();
@@ -58,6 +58,7 @@ export default async function DashboardPage() {
               <TableRow>
                 <TableHead>Licitación</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Plazo</TableHead>
                 <TableHead>Páginas</TableHead>
                 <TableHead>Subida</TableHead>
               </TableRow>
@@ -72,6 +73,19 @@ export default async function DashboardPage() {
                   </TableCell>
                   <TableCell>
                     <TenderStatusBadge status={tender.status} />
+                  </TableCell>
+                  <TableCell>
+                    {tender.submissionDeadline ? (
+                      <span
+                        className={
+                          daysUntil(tender.submissionDeadline) <= 5 ? "font-medium text-destructive" : undefined
+                        }
+                      >
+                        {formatDate(tender.submissionDeadline)} ({daysUntil(tender.submissionDeadline)} d)
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>{tender.pageCount ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(tender.createdAt)}</TableCell>

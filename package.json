@@ -55,7 +55,8 @@
     "tesseract.js": "^5.1.1",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/spa": "^1.0.0",
-    "inngest": "^3.28.0"
+    "inngest": "^3.28.0",
+    "@anthropic-ai/sdk": "^0.120.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.6",

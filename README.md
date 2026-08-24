@@ -110,3 +110,8 @@ En construcción por fases (ver commits). Completadas:
 2. Subida de PDF (drag & drop) + extracción de texto (con fallback OCR
    para pliegos escaneados), procesado async vía Inngest con estados en
    tiempo real (subiendo → extrayendo → listo).
+3. Pipeline de análisis IA: semáforo de requisitos excluyentes (con cita
+   textual y página/cláusula), criterios de baremo y resumen ejecutivo
+   (plazos, presupuesto), con Claude Opus 5 + structured outputs + prompt
+   caching del pliego. Consume 1 crédito por análisis, con reembolso
+   automático si falla.

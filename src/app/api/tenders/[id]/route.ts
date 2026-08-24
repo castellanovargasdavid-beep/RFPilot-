@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { getApiMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
+import { tenderDetailSelect } from "@/server/tenders/detail-select";
 
-/** Estado del pipeline para polling desde el cliente durante subida/extracción. */
+/** Estado del pipeline para polling desde el cliente durante subida/extracción/análisis. */
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const membership = await getApiMembership();
   if (!membership) {
@@ -12,18 +13,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
   const tender = await prisma.tender.findFirst({
     where: { id: params.id, organizationId: membership.organizationId },
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      statusMessage: true,
-      pageCount: true,
-      extractedTextIsOcr: true,
-      extractionMethod: true,
-      fileName: true,
-      fileSizeBytes: true,
-      createdAt: true,
-    },
+    select: tenderDetailSelect,
   });
 
   if (!tender) {
