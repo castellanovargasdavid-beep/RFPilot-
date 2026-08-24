@@ -1,0 +1,619 @@
+// RFPilot — esquema de datos
+// Convenciones:
+//  - Todo modelo de negocio cuelga (directa o indirectamente) de Organization.
+//    El aislamiento multi-tenant se aplica en la capa de acceso a datos (src/server/data/*),
+//    que exige organizationId en cada query — nunca se confía en IDs recibidos del cliente.
+//  - Los campos que terminan en "Encrypted" guardan texto cifrado (AES-256-GCM, ver src/lib/crypto.ts).
+//    Nunca se envían en claro a la API de Claude ni se loguean.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// =========================================================================
+// Auth (Auth.js / NextAuth v5)
+// =========================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String? // null si el usuario solo usa OAuth (Google/Microsoft)
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships Membership[]
+
+  uploadedTenders Tender[]     @relation("TenderUploadedBy")
+  aiUsageLogs     AiUsageLog[]
+  auditLogs       AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// =========================================================================
+// Organización (tenant) y multi-cliente (para consultoras/despachos)
+// =========================================================================
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Organization {
+  id               String  @id @default(cuid())
+  name             String
+  slug             String  @unique
+  whiteLabel       Boolean @default(false)
+  logoUrl          String?
+  brandColor       String?
+  stripeCustomerId String? @unique
+
+  memberships     Membership[]
+  clients         Client[]
+  companyProfiles CompanyProfile[]
+  tenders         Tender[]
+  subscription    Subscription?
+  creditLedger    CreditLedgerEntry[]
+  alertKeywords   AlertKeyword[]
+  aiUsageLogs     AiUsageLog[]
+  auditLogs       AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           OrgRole  @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+/// Cliente final de una consultora/despacho (plan Agencia, marca blanca).
+/// Permite gestionar licitaciones y perfiles de empresa por cuenta de terceros
+/// dentro de una misma Organization, sin mezclar datos entre organizaciones.
+model Client {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  contactEmail   String?
+  contactName    String?
+  notes          String?  @db.Text
+
+  companyProfiles CompanyProfile[]
+  tenders         Tender[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// =========================================================================
+// Perfil de empresa (reutilizable, cruzado contra cada licitación)
+// =========================================================================
+
+model CompanyProfile {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String?
+  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  name          String
+  taxIdEncrypted String? // CIF/NIF cifrado
+  legalForm     String?
+  foundedYear   Int?
+  employeeCount Int?
+  description   String? @db.Text
+  isDefault     Boolean @default(false)
+
+  revenueYears   RevenueYear[]
+  certifications Certification[]
+  references     ExperienceReference[]
+  teamMembers    TeamMember[]
+  tenderAnalyses TenderAnalysis[]
+  proposalDrafts ProposalDraft[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([clientId])
+}
+
+/// Facturación anual (últimos ejercicios) — cifrada por ser dato fiscal sensible.
+model RevenueYear {
+  id               String @id @default(cuid())
+  companyProfileId String
+  companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  year             Int
+  amountEncrypted  String // importe cifrado (unidades enteras de currency)
+  currency         String @default("EUR")
+
+  @@unique([companyProfileId, year])
+}
+
+model Certification {
+  id                String    @id @default(cuid())
+  companyProfileId  String
+  companyProfile    CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  name              String // p.ej. "ISO 9001", "ISO 27001", "ENS"
+  issuer            String?
+  certificateNumber String?
+  issuedAt          DateTime?
+  expiresAt         DateTime?
+  fileUrl           String? // escaneo del certificado en storage
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyProfileId])
+  @@index([expiresAt])
+}
+
+model ExperienceReference {
+  id               String    @id @default(cuid())
+  companyProfileId String
+  companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  title            String
+  clientName       String
+  description      String?   @db.Text
+  amountEncrypted  String? // importe del contrato, cifrado
+  currency         String    @default("EUR")
+  startDate        DateTime?
+  endDate          DateTime?
+  sector           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyProfileId])
+}
+
+model TeamMember {
+  id               String  @id @default(cuid())
+  companyProfileId String
+  companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  name             String
+  role             String
+  yearsExperience  Int?
+  qualifications   String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([companyProfileId])
+}
+
+// =========================================================================
+// Licitación / RFP subido
+// =========================================================================
+
+enum TenderStatus {
+  UPLOADING
+  EXTRACTING
+  EXTRACTION_FAILED
+  ANALYZING
+  ANALYSIS_FAILED
+  READY
+}
+
+enum TenderSourceType {
+  PUBLIC_TENDER
+  CORPORATE_RFP
+}
+
+model Tender {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientId       String?
+  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  uploadedById   String
+  uploadedBy     User     @relation("TenderUploadedBy", fields: [uploadedById], references: [id])
+
+  title           String
+  sourceType      TenderSourceType @default(PUBLIC_TENDER)
+  contractingBody String?
+
+  fileUrl       String // URL en Vercel Blob del PDF original
+  fileName      String
+  fileSizeBytes Int
+  pageCount     Int?
+
+  status        TenderStatus @default(UPLOADING)
+  statusMessage String?
+
+  extractedText      String?  @db.Text
+  extractedTextIsOcr Boolean  @default(false)
+  extractionMethod   String? // "pdf-parse" | "tesseract-ocr"
+
+  submissionDeadline    DateTime?
+  clarificationDeadline DateTime?
+  maxBudget             Int? // en unidades enteras de currency (no céntimos)
+  currency              String    @default("EUR")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  analyses       TenderAnalysis[]
+  proposalDrafts ProposalDraft[]
+  aiUsageLogs    AiUsageLog[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, submissionDeadline])
+}
+
+// =========================================================================
+// Análisis IA (versionado — cada regeneración crea una nueva versión)
+// =========================================================================
+
+enum AnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum EligibilityStatus {
+  GREEN
+  AMBER
+  RED
+}
+
+model TenderAnalysis {
+  id               String   @id @default(cuid())
+  tenderId         String
+  tender           Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
+
+  version       Int            @default(1)
+  status        AnalysisStatus @default(PENDING)
+  errorMessage  String?
+  promptVersion String // p.ej. "requirements-extraction@1"
+  modelUsed     String?
+
+  // Resumen ejecutivo estructurado (alcance, plazos, presupuesto, baremo)
+  scopeSummary         String? @db.Text
+  executiveSummaryJson Json?
+
+  eligibilityStatus EligibilityStatus?
+  eligibilityScore  Float? // 0-100, heurística ponderada
+
+  requirements      ExclusionRequirement[]
+  scoringCriteria   ScoringCriterion[]
+  eligibilityChecks EligibilityCheck[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenderId, version])
+}
+
+enum RequirementCategory {
+  CERTIFICATION
+  FINANCIAL
+  TECHNICAL_EXPERIENCE
+  LEGAL_ADMINISTRATIVE
+  TEAM_QUALIFICATION
+  INSURANCE
+  OTHER
+}
+
+model ExclusionRequirement {
+  id             String   @id @default(cuid())
+  analysisId     String
+  analysis       TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  category       RequirementCategory
+  description    String   @db.Text
+  citationText   String?  @db.Text // cita textual del pliego
+  citationPage   Int?
+  citationClause String?
+  isMandatory    Boolean  @default(true)
+  order          Int      @default(0)
+
+  eligibilityCheck EligibilityCheck?
+
+  createdAt DateTime @default(now())
+
+  @@index([analysisId])
+}
+
+model ScoringCriterion {
+  id            String   @id @default(cuid())
+  analysisId    String
+  analysis      TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?  @db.Text
+  weightPercent Float
+  maxPoints     Float?
+  order         Int      @default(0)
+
+  @@index([analysisId])
+}
+
+/// Cruce del requisito excluyente contra el CompanyProfile — es la lógica de
+/// negocio más crítica de la app (un falso GREEN puede costarle la licitación
+/// al cliente), ver src/server/eligibility/*.
+model EligibilityCheck {
+  id                 String   @id @default(cuid())
+  analysisId         String
+  analysis           TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  requirementId      String   @unique
+  requirement        ExclusionRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  status             EligibilityStatus
+  reasoning          String   @db.Text
+  matchedProfileFact String? // qué dato del perfil determinó el resultado
+
+  createdAt DateTime @default(now())
+
+  @@index([analysisId])
+}
+
+// =========================================================================
+// Borrador de propuesta
+// =========================================================================
+
+enum ProposalStatus {
+  DRAFT
+  GENERATING
+  READY
+}
+
+enum SectionStatus {
+  EMPTY
+  GENERATING
+  GENERATED
+  EDITED
+  FAILED
+}
+
+model ProposalDraft {
+  id               String   @id @default(cuid())
+  tenderId         String
+  tender           Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  companyProfileId String?
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
+
+  title  String
+  status ProposalStatus @default(DRAFT)
+
+  sections ProposalSection[]
+  exports  ProposalExport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenderId])
+}
+
+model ProposalSection {
+  id       String  @id @default(cuid())
+  draftId  String
+  draft    ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  parentId String?
+  parent   ProposalSection?  @relation("SectionChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children ProposalSection[] @relation("SectionChildren")
+
+  order           Int
+  title           String
+  instructions    String? @db.Text // qué exige el pliego para esta sección
+  content         String? @db.Text // markdown
+  status          SectionStatus @default(EMPTY)
+  wordCountTarget Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([draftId])
+  @@index([parentId])
+}
+
+enum ExportFormat {
+  DOCX
+  PDF
+}
+
+model ProposalExport {
+  id      String @id @default(cuid())
+  draftId String
+  draft   ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  format  ExportFormat
+  fileUrl String
+
+  createdAt DateTime @default(now())
+
+  @@index([draftId])
+}
+
+// =========================================================================
+// Facturación / planes / créditos
+// =========================================================================
+
+enum PlanType {
+  PAY_AS_YOU_GO
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+model Subscription {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  plan                 PlanType           @default(PAY_AS_YOU_GO)
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum CreditReason {
+  PLAN_GRANT
+  PAY_AS_YOU_GO_PURCHASE
+  TENDER_ANALYSIS
+  PROPOSAL_DRAFT
+  MANUAL_ADJUSTMENT
+  REFUND
+}
+
+/// Ledger append-only: el saldo de créditos es siempre la suma de deltas,
+/// nunca un contador mutable — evita condiciones de carrera y facilita auditar.
+model CreditLedgerEntry {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  delta           Int
+  reason          CreditReason
+  relatedTenderId String?
+  balanceAfter    Int
+  metadata        Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+// =========================================================================
+// Alertas de boletines oficiales (fase avanzada)
+// =========================================================================
+
+model AlertKeyword {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  keyword        String
+  active         Boolean  @default(true)
+
+  matches AlertMatch[]
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+}
+
+model AlertMatch {
+  id             String    @id @default(cuid())
+  alertKeywordId String
+  alertKeyword   AlertKeyword @relation(fields: [alertKeywordId], references: [id], onDelete: Cascade)
+  title          String
+  sourceUrl      String
+  sourceBoard    String? // "PLACSP", "BOE", "DOUE"...
+  publishedAt    DateTime?
+  notifiedAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([alertKeywordId])
+}
+
+// =========================================================================
+// Observabilidad
+// =========================================================================
+
+model AiUsageLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tenderId       String?
+  tender         Tender?  @relation(fields: [tenderId], references: [id], onDelete: SetNull)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  step             String // "requirements-extraction" | "executive-summary" | "eligibility-crosscheck" | "proposal-outline" | "section-generation"
+  model            String
+  inputTokens      Int
+  outputTokens     Int
+  cacheReadTokens  Int    @default(0)
+  cacheWriteTokens Int    @default(0)
+  costCents        Int
+  durationMs       Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([tenderId])
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action     String // "tender.upload" | "profile.update" | "draft.export" ...
+  targetType String?
+  targetId   String?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}
