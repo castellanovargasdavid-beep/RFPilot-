@@ -81,10 +81,12 @@ anterior, para poder comparar/regenerar):
    (`src/ai/context.ts`), compartido con los pasos de la Fase 5 para
    reutilizar el prefill. Si `parsed_output` no valida contra el schema
    Zod, reintenta hasta 3 veces indicándole al modelo el error concreto.
-3. **Cruce contra el perfil de empresa** (Fase 4) — lógica determinista en
-   TypeScript sobre los datos ya estructurados (no una nueva llamada a
-   Claude por requisito), con un fallback asistido por IA solo para
-   requisitos ambiguos en texto libre.
+3. **Cruce contra el perfil de empresa** (Fase 4, implementada) — lógica
+   determinista en TypeScript (`src/server/eligibility/`) sobre los datos
+   ya estructurados del `CompanyProfile`, sin ninguna llamada a Claude por
+   requisito. Se ejecuta automáticamente al final del análisis de la Fase
+   3 y se puede recalcular gratis (botón "Actualizar semáforo") cada vez
+   que el usuario edita su perfil. Ver el detalle más abajo.
 4. **Generación del índice de propuesta** (Fase 5) — a partir de la
    estructura exigida por el pliego.
 5. **Generación de contenido por sección bajo demanda** (Fase 5) — nunca
@@ -218,6 +220,53 @@ Decisiones tomadas al construir la Fase 2, con la razón empírica detrás:
   fallo controlado por falta de credencial, reembolso automático, y
   reflejo correcto del estado en la UI (`ANALYZING` → `ANALYSIS_FAILED`
   con reintento). Verificar con una clave real antes de producción.
+
+## Cruce de requisitos (Fase 4) — la lógica más crítica del producto
+
+Un falso "cumples" en el semáforo puede hacer que el cliente presente una
+oferta que va a ser excluida — y un falso "no cumples" le puede hacer
+descartar una licitación que sí podía ganar. Por eso el motor de cruce
+(`src/server/eligibility/`) sigue un único principio de diseño en cada
+matcher: **ante la duda, AMBER, nunca GREEN.** Un matcher que no tiene
+datos suficientes para confirmar el cumplimiento nunca lo asume — devuelve
+AMBER con una explicación de qué revisar manualmente. Solo se marca GREEN
+cuando hay una coincidencia concreta y verificable contra el perfil, y solo
+se marca RED cuando hay una comparación numérica clara que falla (importe,
+nº de referencias) — nunca por ausencia de datos.
+
+- **Determinista, no otra llamada a Claude por requisito.** Cada categoría
+  de requisito (`CERTIFICATION`, `FINANCIAL`, `TECHNICAL_EXPERIENCE`,
+  `TEAM_QUALIFICATION`) tiene un *matcher* en TypeScript
+  (`src/server/eligibility/matchers/`) que extrae la señal relevante del
+  texto del requisito (código de norma ISO, importe en euros, nº de años/
+  referencias exigidas — `normalize.ts`, `money.ts`) y la compara contra
+  los datos ya estructurados del perfil. Es instantáneo, gratis, 100%
+  auditable, y — sobre todo — testeable de forma exhaustiva, que es
+  justamente lo que exige la lógica de negocio más crítica del producto.
+- **`LEGAL_ADMINISTRATIVE`, `INSURANCE` y `OTHER` siempre dan AMBER.** No
+  hay un campo estructurado en el perfil que pueda demostrar una
+  declaración responsable o una póliza de seguro concreta — fingir que sí
+  sería precisamente el tipo de falso positivo que este producto existe
+  para evitar.
+- **Extensión pendiente (no implementada en esta fase): fallback asistido
+  por IA para requisitos ambiguos.** El diseño original contemplaba una
+  llamada a Claude solo para los casos donde el matcher determinista no
+  puede resolver el requisito (en vez de AMBER genérico). Se ha dejado
+  fuera del alcance de esta fase para mantener el foco en el motor
+  determinista + sus tests — es la extensión natural más obvia si el AMBER
+  genérico resulta poco útil en la práctica.
+- **47 tests unitarios** (`src/server/eligibility/*.test.ts`) cubren el
+  parser de importes en varios formatos españoles, la extracción de
+  códigos de norma/años/nº de referencias, cada matcher (incluyendo los
+  casos límite: "nunca debe dar GREEN por falta de datos", "nunca debe
+  dar RED solo por ambigüedad") y el rollup del semáforo global.
+- **Perfil de empresa único por organización (MVP).** El modelo de datos
+  ya soporta varios `CompanyProfile` por organización (vía `Client`, para
+  el plan Agencia con multi-cliente), pero la Fase 4 solo construye la UI
+  para el perfil "por defecto" de la organización — se crea
+  automáticamente vacío en el primer acceso a `/dashboard/profile`. El
+  selector de perfil por cliente queda para cuando se aborde el plan
+  Agencia (Fase 6).
 
 ## Riesgos aceptados
 

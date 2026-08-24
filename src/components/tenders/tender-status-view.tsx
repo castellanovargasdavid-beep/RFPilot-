@@ -6,6 +6,7 @@ import {
   Calendar,
   CalendarClock,
   FileText,
+  Loader2,
   RotateCw,
   ScrollText,
   Sparkles,
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { TenderStatusBadge } from "@/components/tenders/status-badge";
+import { TenderStatusBadge, EligibilityBadge } from "@/components/tenders/status-badge";
 import { formatCurrency, formatDate, daysUntil, cn } from "@/lib/utils";
 import type { TenderDetail } from "@/server/tenders/detail-select";
 
@@ -53,6 +54,7 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   const [retrying, setRetrying] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [updatingEligibility, setUpdatingEligibility] = useState(false);
 
   useEffect(() => {
     if (!POLLING_STATUSES.includes(tender.status)) return;
@@ -90,6 +92,16 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
     }
     setTender((t) => ({ ...t, status: "ANALYZING", statusMessage: null }));
     setAnalyzing(false);
+  }
+
+  async function handleUpdateEligibility() {
+    setUpdatingEligibility(true);
+    const res = await fetch(`/api/tenders/${tender.id}/eligibility`, { method: "POST" });
+    if (res.ok) {
+      const refreshed = await fetch(`/api/tenders/${tender.id}`);
+      if (refreshed.ok) setTender(await refreshed.json());
+    }
+    setUpdatingEligibility(false);
   }
 
   const analysis = tender.analyses[0];
@@ -222,11 +234,22 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
           )}
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Requisitos excluyentes</CardTitle>
-              <CardDescription>
-                Vincula un perfil de empresa (Fase 4) para ver el semáforo de cumplimiento por requisito.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-base">Requisitos excluyentes</CardTitle>
+                <CardDescription>
+                  {analysis.eligibilityStatus
+                    ? "Semáforo cruzado contra tu perfil de empresa."
+                    : "Aún no se ha cruzado contra tu perfil de empresa."}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {analysis.eligibilityStatus && <EligibilityBadge status={analysis.eligibilityStatus} />}
+                <Button variant="outline" size="sm" onClick={handleUpdateEligibility} disabled={updatingEligibility}>
+                  {updatingEligibility ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                  Actualizar semáforo
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {analysis.requirements.length === 0 && (
@@ -235,6 +258,7 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
               {analysis.requirements.map((req) => (
                 <div key={req.id} className="rounded-lg border p-4">
                   <div className="flex flex-wrap items-center gap-2">
+                    {req.eligibilityCheck && <EligibilityBadge status={req.eligibilityCheck.status} />}
                     <Badge variant="outline">{REQUIREMENT_CATEGORY_LABELS[req.category] ?? req.category}</Badge>
                     {!req.isMandatory && <Badge variant="secondary">Orientativo</Badge>}
                   </div>
@@ -250,6 +274,9 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
                         </span>
                       )}
                     </blockquote>
+                  )}
+                  {req.eligibilityCheck && (
+                    <p className="mt-2 text-sm text-muted-foreground">{req.eligibilityCheck.reasoning}</p>
                   )}
                 </div>
               ))}

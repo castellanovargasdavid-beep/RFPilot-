@@ -82,6 +82,8 @@ automáticamente un fallback a disco local (`.local-blob-storage/`, ya en
 | `npm run build` | Build de producción |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run test` | Tests unitarios (Vitest) |
+| `npm run test:watch` | Tests unitarios en modo watch |
 | `npm run prisma:generate` | Regenera el cliente de Prisma tras tocar el schema |
 | `npm run prisma:migrate` | Crea/aplica una migración de desarrollo |
 | `npm run db:push` | Sincroniza el schema sin migración (prototipado rápido) |
@@ -115,3 +117,7 @@ En construcción por fases (ver commits). Completadas:
    (plazos, presupuesto), con Claude Opus 5 + structured outputs + prompt
    caching del pliego. Consume 1 crédito por análisis, con reembolso
    automático si falla.
+4. Perfil de empresa (certificaciones con alerta de caducidad, facturación,
+   referencias, equipo) y motor de cruce determinista contra los
+   requisitos excluyentes — el semáforo real, con 47 tests unitarios sobre
+   la lógica de negocio más crítica del producto.

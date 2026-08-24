@@ -1,7 +1,7 @@
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import type { TenderStatus } from "@prisma/client";
+import type { EligibilityStatus, TenderStatus } from "@prisma/client";
 
 const STATUS_CONFIG: Record<TenderStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning"; spinning?: boolean }> = {
   UPLOADING: { label: "Subiendo", variant: "secondary", spinning: true },
@@ -18,6 +18,26 @@ export function TenderStatusBadge({ status }: { status: TenderStatus }) {
   return (
     <Badge variant={config.variant}>
       {config.spinning && <Loader2 className="h-3 w-3 animate-spin" />}
+      {config.label}
+    </Badge>
+  );
+}
+
+const ELIGIBILITY_CONFIG: Record<
+  EligibilityStatus,
+  { label: string; variant: "success" | "warning" | "destructive"; icon: typeof CheckCircle2 }
+> = {
+  GREEN: { label: "Cumples", variant: "success", icon: CheckCircle2 },
+  AMBER: { label: "Revisar", variant: "warning", icon: AlertTriangle },
+  RED: { label: "No cumples", variant: "destructive", icon: XCircle },
+};
+
+export function EligibilityBadge({ status }: { status: EligibilityStatus }) {
+  const config = ELIGIBILITY_CONFIG[status];
+  const Icon = config.icon;
+  return (
+    <Badge variant={config.variant}>
+      <Icon className="h-3 w-3" />
       {config.label}
     </Badge>
   );

@@ -4,6 +4,8 @@ import { refundCredits } from "@/server/billing/credits";
 import { CREDIT_COST_TENDER_ANALYSIS } from "@/lib/plans";
 import { analyzeTenderRequirements, REQUIREMENTS_EXTRACTION_PROMPT_VERSION } from "@/ai/analyze-tender";
 import { CLAUDE_MODEL } from "@/ai/client";
+import { getOrCreateDefaultProfile } from "@/server/company-profile/repository";
+import { runEligibilityCrossCheck } from "@/server/eligibility/run-cross-check";
 
 /**
  * Pipeline paso (b): extracción de requisitos excluyentes + criterios de
@@ -127,6 +129,15 @@ export const analyzeTenderFunction = inngest.createFunction(
           },
         }),
       ]);
+    });
+
+    // Paso (c): cruce automático contra el perfil de empresa por defecto de
+    // la organización (Fase 4). Es código determinista, no otra llamada a
+    // Claude — barato, así que se ejecuta siempre, aunque el perfil esté
+    // vacío (el usuario verá el semáforo en rojo/ámbar y sabrá qué rellenar).
+    await step.run("run-eligibility-cross-check", async () => {
+      const profile = await getOrCreateDefaultProfile(tender.organizationId);
+      await runEligibilityCrossCheck(tenderId, profile.id);
     });
 
     return { tenderId, analysisId: analysis.id };

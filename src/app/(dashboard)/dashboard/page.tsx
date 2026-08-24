@@ -4,7 +4,7 @@ import { FileSearch, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TenderStatusBadge } from "@/components/tenders/status-badge";
+import { TenderStatusBadge, EligibilityBadge } from "@/components/tenders/status-badge";
 import { requireActiveMembership } from "@/server/auth/session";
 import { prisma } from "@/lib/prisma";
 import { formatDate, daysUntil } from "@/lib/utils";
@@ -16,6 +16,9 @@ export default async function DashboardPage() {
     where: { organizationId: membership.organizationId },
     orderBy: { createdAt: "desc" },
     take: 50,
+    include: {
+      analyses: { orderBy: { version: "desc" }, take: 1, select: { eligibilityStatus: true } },
+    },
   });
 
   return (
@@ -58,6 +61,7 @@ export default async function DashboardPage() {
               <TableRow>
                 <TableHead>Licitación</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Semáforo</TableHead>
                 <TableHead>Plazo</TableHead>
                 <TableHead>Páginas</TableHead>
                 <TableHead>Subida</TableHead>
@@ -73,6 +77,13 @@ export default async function DashboardPage() {
                   </TableCell>
                   <TableCell>
                     <TenderStatusBadge status={tender.status} />
+                  </TableCell>
+                  <TableCell>
+                    {tender.analyses[0]?.eligibilityStatus ? (
+                      <EligibilityBadge status={tender.analyses[0].eligibilityStatus} />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {tender.submissionDeadline ? (
