@@ -7,6 +7,12 @@ elegibilidad) y genera el borrador de la propuesta técnica.
 Ver [ARCHITECTURE.md](./ARCHITECTURE.md) para las decisiones de diseño y el
 pipeline de IA.
 
+> Nota: este repo también contiene, en
+> [`docs/complianceguard-ai/BLUEPRINT.md`](./docs/complianceguard-ai/BLUEPRINT.md),
+> el diseño técnico y de producto completo de **ComplianceGuard AI**
+> (auditoría de privacidad RGPD/CCPA en 1 clic), un SaaS distinto que
+> reutiliza el mismo stack — no es una funcionalidad de RFPilot.
+
 ## Stack
 
 Next.js 14 (App Router) · TypeScript · Tailwind + shadcn/ui · PostgreSQL +
