@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
@@ -78,6 +79,7 @@
     "tsx": "^4.19.2",
     "vitest": "^4.1.11",
     "pdfkit": "^0.15.1",
-    "@types/pdfkit": "^0.13.5"
+    "@types/pdfkit": "^0.13.5",
+    "@playwright/test": "^1.62.1"
   }
 }

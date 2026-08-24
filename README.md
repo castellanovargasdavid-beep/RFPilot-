@@ -90,8 +90,9 @@ automáticamente un fallback a disco local (`.local-blob-storage/`, ya en
 | `npm run build` | Build de producción |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run test` | Tests unitarios (Vitest) |
+| `npm run test` | Tests unitarios e integración (Vitest) |
 | `npm run test:watch` | Tests unitarios en modo watch |
+| `npm run test:e2e` | Tests end-to-end (Playwright, requiere `npm run dev` y el seed) |
 | `npm run prisma:generate` | Regenera el cliente de Prisma tras tocar el schema |
 | `npm run prisma:migrate` | Crea/aplica una migración de desarrollo |
 | `npm run db:push` | Sincroniza el schema sin migración (prototipado rápido) |
@@ -146,3 +147,73 @@ En construcción por fases (ver commits). Completadas:
    licitación pública española con perfil de empresa y borrador de
    propuesta de ejemplo (`npm run prisma:seed`) para probar el flujo
    completo sin depender de una API key.
+8. Tests: 47 tests unitarios sobre el motor de cruce de requisitos, más
+   tests de integración contra Postgres real (cruce de requisitos y
+   extracción de PDF) y 6 tests end-to-end con Playwright (registro/login,
+   y el flujo completo semáforo → requisitos → perfil → borrador de
+   propuesta sobre los datos de demo). Ver "Tests (Fase 8)" en
+   `ARCHITECTURE.md`.
+
+## Tests
+
+```bash
+npm run test          # unitarios + integración (Vitest) — requiere DATABASE_URL
+                       # para los de integración; se saltan solos si no está
+npm run test:e2e       # end-to-end (Playwright) — requiere `npm run dev`
+                       # corriendo en otra terminal y `npm run prisma:seed` ya ejecutado
+```
+
+## Despliegue
+
+### Servicios necesarios
+
+| Servicio | Para qué | Dónde crearlo |
+|---|---|---|
+| PostgreSQL | Base de datos principal | [Neon](https://neon.tech) o [Supabase](https://supabase.com) (plan gratuito válido para empezar) |
+| Anthropic (Claude) | Motor de IA del pipeline de análisis y generación de propuestas | [console.anthropic.com](https://console.anthropic.com) → API Keys |
+| Vercel Blob | Almacenamiento de los PDFs subidos | Dashboard de Vercel → pestaña Storage → Blob |
+| Inngest | Orquestación async del pipeline (extracción → análisis → propuesta) | [inngest.com](https://www.inngest.com) → crea una app, copia Event Key y Signing Key |
+| Stripe | Suscripciones (Pro/Agencia), compra de créditos pay-as-you-go, portal de facturación | [dashboard.stripe.com](https://dashboard.stripe.com) (modo test primero) |
+| Google / Microsoft OAuth (opcional) | Login social | Google Cloud Console / Azure Entra ID — solo si quieres login social además de email+contraseña |
+
+### Pasos
+
+1. **Base de datos**: crea un proyecto Postgres (Neon/Supabase), copia la
+   cadena de conexión pooled a `DATABASE_URL` y la directa (no pooled) a
+   `DIRECT_DATABASE_URL`. Ejecuta `npx prisma migrate deploy` contra ella
+   antes del primer despliegue.
+2. **Claude**: crea una API key en console.anthropic.com y ponla en
+   `ANTHROPIC_API_KEY`. El pipeline usa el modelo `claude-opus-5` con
+   prompt caching — no requiere configuración adicional en la consola.
+3. **Vercel Blob**: en el dashboard del proyecto de Vercel, activa Blob
+   Storage y copia el token a `BLOB_READ_WRITE_TOKEN`. Sin esta variable
+   la app cae automáticamente al fallback de disco local — **no vale para
+   producción** (el filesystem de las funciones serverless no persiste
+   entre invocaciones), así que es obligatoria en despliegue real.
+4. **Inngest**: crea una app en inngest.com, copia `INNGEST_EVENT_KEY` y
+   `INNGEST_SIGNING_KEY`. Tras desplegar, registra el endpoint
+   `https://tu-dominio/api/inngest` desde el dashboard de Inngest (o deja
+   que el SDK lo sincronice automáticamente si usas la integración de
+   Vercel).
+5. **Stripe**: crea los 3 precios en el dashboard (Pro y Agencia como
+   recurrentes mensuales, pay-as-you-go como precio único) y copia sus IDs
+   a `STRIPE_PRICE_PRO`, `STRIPE_PRICE_AGENCY`, `STRIPE_PRICE_PAYG_CREDIT`.
+   Copia la clave secreta a `STRIPE_SECRET_KEY`. Configura un webhook
+   apuntando a `https://tu-dominio/api/webhooks/stripe` (eventos:
+   `checkout.session.completed`, `invoice.paid`,
+   `customer.subscription.updated`, `customer.subscription.deleted`) y
+   copia su firma a `STRIPE_WEBHOOK_SECRET`. Empieza en modo test, pasa a
+   claves live solo cuando el flujo de checkout/portal esté verificado.
+6. **Secretos propios**: genera `NEXTAUTH_SECRET` y `ENCRYPTION_KEY` con
+   `openssl rand -base64 32` cada uno (deben ser distintos entre sí, y
+   distintos de los de desarrollo local). Guarda `ENCRYPTION_KEY` con
+   cuidado — cifra CIF/NIF y datos financieros del perfil de empresa; si
+   se pierde, esos campos quedan indescifrables.
+7. **Desplegar**: conecta el repo a Vercel (o el equivalente), configura
+   las variables de entorno anteriores en el proyecto, y despliega. El
+   `build` corre `prisma generate` automáticamente (hook `postinstall`
+   estándar de Prisma); ejecuta las migraciones (`npx prisma migrate
+   deploy`) como paso separado antes de servir tráfico, no en el build.
+8. **Verifica**: crea una cuenta, sube un PDF de prueba, confirma que pasa
+   por subiendo → extrayendo → analizando → listo, y que el webhook de
+   Stripe concede créditos tras un checkout de test.

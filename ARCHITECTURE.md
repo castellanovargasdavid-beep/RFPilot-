@@ -398,6 +398,69 @@ nº de referencias) — nunca por ausencia de datos.
 - **`npm run prisma:seed` es idempotente**: si el usuario demo ya existe,
   no hace nada (evita duplicar la licitación de demo en reseeds).
 
+## Tests (Fase 8)
+
+- **Tres capas, no solo unit tests.** El pedido original marca la lógica
+  de cruce de requisitos como "la lógica de negocio más crítica" (un falso
+  "cumples" puede costarle una licitación al cliente), así que se prueba
+  en tres niveles distintos en vez de confiar en uno solo:
+  1. **Unitarios en memoria** (`src/server/eligibility/{normalize,money,engine}.test.ts`,
+     47 tests): funciones puras del motor — normalización de texto,
+     parseo de importes en formato español, `evaluateRequirement`/
+     `evaluateAllRequirements`/`rollupEligibility` — sin tocar la base de
+     datos.
+  2. **Integración contra Postgres real**
+     (`src/server/eligibility/run-cross-check.integration.test.ts`,
+     `src/server/pdf/extract-tender-document.integration.test.ts`):
+     ejecutan `runEligibilityCrossCheck()` y `extractTenderDocument()`
+     tal cual se llaman en producción — el primero crea su propia
+     Organization/Tender/TenderAnalysis/ExclusionRequirement/CompanyProfile
+     con datos con un requisito que sí se cumple y otro que no, verifica
+     que persiste `EligibilityCheck` GREEN/RED correctamente, que el
+     rollup en `TenderAnalysis.eligibilityStatus`/`eligibilityScore` es el
+     esperado, y que ejecutarlo dos veces no duplica filas (upsert por
+     `requirementId`, no create ciego); el segundo corre la extracción de
+     texto real contra el PDF fixture committeado. Ambos usan
+     `describe.skipIf(!hasDatabase)` para no romper un entorno sin
+     `DATABASE_URL` (p.ej. CI sin Postgres), y limpian todo lo que crean en
+     `afterAll`.
+  3. **End-to-end con Playwright** (`e2e/*.spec.ts`, navegador real): el
+     flujo que ningún test unitario puede cubrir — que el semáforo
+     realmente se vea en la pantalla correcta tras iniciar sesión.
+     `auth.spec.ts` prueba registro, login con contraseña incorrecta, y
+     redirección si no hay sesión (estos tres son autocontenidos, no
+     dependen de datos previos). `demo-flow.spec.ts` prueba el flujo
+     contra los datos de `npm run prisma:seed` — lista con semáforo,
+     detalle con requisitos por línea y resumen ejecutivo, perfil de
+     empresa, y navegación al editor de propuesta — deliberadamente sin
+     depender de `ANTHROPIC_API_KEY`: el seed ya deja el análisis
+     calculado por el motor real (ver Fase 7), así que el E2E prueba el
+     renderizado y la navegación, no la llamada a Claude en sí.
+- **`vitest.config.mts` carga `.env` a mano.** Ni `tsx` ni Vitest cargan
+  dotenv automáticamente; se añadió `process.loadEnvFile()` (API nativa de
+  Node 20.6+/22, sin dependencia extra) en un try/catch antes de
+  `defineConfig`, para que los tests de integración tengan
+  `DATABASE_URL`/`ENCRYPTION_KEY` disponibles igual que en runtime normal.
+- **`playwright.config.ts` no fija una ruta de Chromium por defecto.** El
+  sandbox de desarrollo usa un Chromium preinstalado en una ruta propia
+  (`/opt/pw-browsers/chromium`), pero hardcodear esa ruta en el config
+  committeado rompería cualquier otro entorno/CI que use el Chromium
+  descargado por `npx playwright install`. En vez de eso, el
+  `executablePath` solo se fija si la variable de entorno
+  `PLAYWRIGHT_CHROMIUM_PATH` está definida explícitamente — en este
+  sandbox se exporta al ejecutar los tests, no se commitea.
+- **Locators de Playwright y "strict mode violation".** Dos tests
+  fallaron en la primera pasada porque `getByText(...)` encontraba dos
+  elementos que contenían el mismo texto (p.ej. el nombre de la
+  administración aparece tanto en la card de la licitación como en el
+  breadcrumb; "Resumen ejecutivo de la propuesta" aparece como título de
+  sección en el árbol y como heading del contenido). Se corrigió acotando
+  con `.first()` o cambiando a `getByRole` con un nombre accesible más
+  específico, en vez de debilitar la aserción.
+- **Total: 53 tests unitarios/integración (Vitest) + 6 tests E2E
+  (Playwright)**, todos verdes. `npm run test:e2e` corre el E2E;
+  `npm run test`, el resto.
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`
