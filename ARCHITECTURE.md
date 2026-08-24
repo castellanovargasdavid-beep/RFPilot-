@@ -461,6 +461,41 @@ nº de referencias) — nunca por ausencia de datos.
   (Playwright)**, todos verdes. `npm run test:e2e` corre el E2E;
   `npm run test`, el resto.
 
+## Rediseño visual de la landing (post-lanzamiento)
+
+Tras el primer despliegue, feedback de que la web se veía "sin vida" —
+paleta casi monocroma en azul marino muy oscuro, sin elementos dinámicos.
+Cambios, manteniendo el tono profesional B2B pedido en el encargo original:
+
+- **Paleta**: `--primary` pasa de un azul marino casi negro (`222 47% 18%`)
+  a un índigo vivo (`243 75% 59%`), con 5 colores de marca decorativos
+  (`--brand-violet/blue/teal/amber/rose`, en `globals.css` y expuestos como
+  `bg-brand-*` en `tailwind.config.ts`) usados solo en la web pública —
+  fondo, badges de semáforo y demás componentes del dashboard siguen el
+  sistema semántico de shadcn sin tocar, así que el cambio de paleta
+  cascada automáticamente sin tener que editar cada componente. Modo
+  oscuro con fondo índigo-carbón en vez de negro plano, mismo criterio.
+- **Elementos dinámicos, no fotos de stock**: al no tener acceso a un
+  banco de imágenes real (y para no usar fotografía genérica de stock que
+  no aporta), la "vida" viene de tres piezas nuevas en
+  `src/components/marketing/`: `eligibility-demo.tsx` (tarjeta que cicla
+  cada 2.6s entre los 3 requisitos reales del pliego de demo —
+  ISO 9001/facturación/ISO 27001 — con sus mismos veredictos verde/ámbar/
+  rojo, no son datos inventados para el marketing), `stat-counter.tsx`
+  (contador animado con `IntersectionObserver` + easing cúbico) y
+  `reveal.tsx` (fade-in-up al hacer scroll, también con
+  `IntersectionObserver`). Blobs de gradiente animados en CSS puro
+  (`@keyframes blob` en `globals.css`) detrás del hero y del banner final,
+  con `prefers-reduced-motion` respetado.
+- **Verificación**: capturas con Playwright en claro/oscuro del landing,
+  login, dashboard vacío, subida y perfil de empresa — confirmando que el
+  contraste y la paleta funcionan en todas las pantallas, no solo en la
+  home. (Se detectó y descartó un falso positivo: en la primera captura
+  el contador y la sección CTA final aparecían incompletos/en blanco
+  porque el `IntersectionObserver` no había disparado aún durante la
+  captura headless; con scroll simulado antes de la captura, todo revela
+  correctamente.)
+
 ## Despliegue en Vercel — Prisma Client desactualizado con caché de dependencias
 
 Primer intento real de despliegue en Vercel: el build fallaba en

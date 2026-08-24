@@ -56,6 +56,13 @@ const config: Config = {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
+        brand: {
+          violet: "hsl(var(--brand-violet))",
+          blue: "hsl(var(--brand-blue))",
+          teal: "hsl(var(--brand-teal))",
+          amber: "hsl(var(--brand-amber))",
+          rose: "hsl(var(--brand-rose))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
