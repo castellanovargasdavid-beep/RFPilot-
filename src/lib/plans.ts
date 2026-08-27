@@ -11,21 +11,21 @@ export const PLAN_CONFIG: Record<
 > = {
   PAY_AS_YOU_GO: {
     label: "Pay-as-you-go",
-    priceLabel: "$29 / licitación",
+    priceLabel: "49€ / licitación",
     monthlyCredits: 0,
     description: "Compra créditos sueltos, sin suscripción. Ideal para uso ocasional.",
   },
   PRO: {
     label: "Pro",
-    priceLabel: "$79 / mes",
+    priceLabel: "129€ / mes",
     monthlyCredits: 5,
     description: "5 análisis + borradores + alertas de boletines oficiales al mes.",
   },
   AGENCY: {
-    label: "Agencia",
-    priceLabel: "$199 / mes",
+    label: "Corporate",
+    priceLabel: "349€ / mes",
     monthlyCredits: null,
-    description: "Análisis ilimitados, multi-cliente y marca blanca para consultoras.",
+    description: "Análisis ilimitados, multi-cliente y marca blanca para consultoras y despachos.",
   },
 };
 
