@@ -26,7 +26,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       <footer className="border-t py-8 text-sm text-muted-foreground">
         <div className="container flex flex-col items-center justify-between gap-2 sm:flex-row">
           <p>© {new Date().getFullYear()} RFPilot. Todos los derechos reservados.</p>
-          <p>Analiza pliegos y RFPs con IA — no descartes una licitación sin leerla.</p>
+          <p>Analiza PCAP y PPT con IA — no descartes una licitación sin leerla.</p>
         </div>
       </footer>
     </div>

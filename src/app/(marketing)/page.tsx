@@ -1,9 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
 import {
   CheckCircle2,
   FileSearch,
   Gauge,
-  Building2,
   FileEdit,
   ArrowRight,
   Sparkles,
@@ -45,7 +45,8 @@ const steps = [
   {
     icon: FileEdit,
     title: "Borrador y DEUC",
-    description: "Índice según el Anexo I del pliego, exportable a Word y PDF, con tu perfil de solvencia ya cruzado.",
+    description:
+      "Índice según el Anexo I del pliego, con tu perfil de solvencia ya cruzado — exportable a Word (.docx) nativo y editable, listo para maquetar con tus estilos corporativos.",
     color: "text-brand-amber bg-brand-amber/10",
   },
 ];
@@ -66,12 +67,12 @@ const features = [
   {
     icon: Table2,
     color: "text-brand-rose bg-brand-rose/10",
-    title: "Matriz de criterios de ponderación",
+    title: "Matriz de criterios objetivos vs. subjetivos",
     description:
-      "Distingue automáticamente los criterios evaluables por fórmula matemática de los que dependen de un juicio de valor — para saber dónde tu memoria técnica realmente puede marcar la diferencia.",
+      "Distingue automáticamente los criterios objetivos (evaluables por fórmula matemática) de los criterios subjetivos (juicio de valor) — para saber dónde tu memoria técnica realmente puede marcar la diferencia.",
     bullets: [
       "Peso porcentual y puntuación máxima de cada criterio",
-      "Marcado como fórmula objetiva o juicio de valor",
+      "Marcado como criterio objetivo o subjetivo",
       "Cita literal de la cláusula del baremo",
     ],
   },
@@ -191,6 +192,27 @@ export default function LandingPage() {
         <Reveal delay={100}>
           <SolvencySplitDemo />
         </Reveal>
+
+        <Reveal delay={200} className="mx-auto mt-10 max-w-4xl">
+          <div className="overflow-hidden rounded-2xl border shadow-xl">
+            <div className="flex items-center gap-2 border-b bg-card px-4 py-2.5 text-xs font-medium text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-success" />
+              Captura real de la app — no es una animación ni un mockup
+            </div>
+            <Image
+              src="/marketing/audit-ready-proof.png"
+              alt="Captura real de RFPilot: al hacer clic en un requisito de solvencia, se abre el pliego original con la cláusula exacta resaltada en amarillo."
+              width={2752}
+              height={1280}
+              className="w-full"
+              sizes="(min-width: 1024px) 896px, 100vw"
+            />
+          </div>
+          <p className="mt-3 text-center text-sm text-muted-foreground">
+            Esto es lo que ves cuando pulsas &ldquo;Ver en el PDF&rdquo; en tu propia cuenta: la cláusula 5.3 del
+            PCAP, resaltada exactamente donde está la cita — no una promesa de marketing.
+          </p>
+        </Reveal>
       </section>
 
       <section className="border-t bg-muted/30 py-20">
@@ -284,7 +306,7 @@ export default function LandingPage() {
                         </li>
                         <li className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4 text-success" />
-                          Generador de borrador de propuesta
+                          Borrador de propuesta con exportación a Word (.docx) nativo
                         </li>
                         {key !== "PAY_AS_YOU_GO" && (
                           <li className="flex items-center gap-2">

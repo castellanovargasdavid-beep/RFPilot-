@@ -8,9 +8,9 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "RFPilot — Analiza licitaciones y RFPs en minutos",
+  title: "RFPilot — Analiza PCAP y PPT de la PLACSP en minutos",
   description:
-    "Sube el pliego, conoce en segundos si tu empresa cumple los requisitos excluyentes y genera el borrador de tu propuesta técnica.",
+    "Sube el PCAP y el PPT, conoce en segundos si tu empresa cumple los requisitos de solvencia técnica y económica, y genera el borrador de tu propuesta técnica con tu DEUC ya cruzado.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
