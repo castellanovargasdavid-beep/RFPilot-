@@ -40,17 +40,39 @@ export const extractTenderFunction = inngest.createFunction(
     });
 
     await step.run("save-extraction", async () => {
-      await prisma.tender.update({
-        where: { id: tenderId },
-        data: {
-          status: "EXTRACTED",
-          statusMessage: result.warning ?? null,
-          extractedText: result.text,
-          extractedTextIsOcr: result.usedOcr,
-          extractionMethod: result.extractionMethod,
-          pageCount: result.pageCount,
-        },
-      });
+      await prisma.$transaction([
+        prisma.tender.update({
+          where: { id: tenderId },
+          data: {
+            status: "EXTRACTED",
+            statusMessage: result.warning ?? null,
+            extractedText: result.text,
+            extractedTextIsOcr: result.usedOcr,
+            extractionMethod: result.extractionMethod,
+            pageCount: result.pageCount,
+          },
+        }),
+        prisma.tenderDocumentBlock.deleteMany({ where: { tenderId } }),
+        ...(result.structuralBlocks.length > 0
+          ? [
+              prisma.tenderDocumentBlock.createMany({
+                data: result.structuralBlocks.map((block) => ({
+                  tenderId,
+                  documento: "PCAP" as const,
+                  pagina: block.pagina,
+                  clausula: block.clausula,
+                  parrafo: block.parrafo,
+                  text: block.text,
+                  bboxX: block.bboxX,
+                  bboxY: block.bboxY,
+                  bboxW: block.bboxW,
+                  bboxH: block.bboxH,
+                  order: block.order,
+                })),
+              }),
+            ]
+          : []),
+      ]);
     });
 
     await step.sendEvent("notify-extraction-completed", {

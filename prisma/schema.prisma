@@ -109,13 +109,13 @@ model Organization {
 }
 
 model Membership {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  role           OrgRole  @default(MEMBER)
-  createdAt      DateTime @default(now())
+  role           OrgRole      @default(MEMBER)
+  createdAt      DateTime     @default(now())
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -125,13 +125,13 @@ model Membership {
 /// Permite gestionar licitaciones y perfiles de empresa por cuenta de terceros
 /// dentro de una misma Organization, sin mezclar datos entre organizaciones.
 model Client {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   contactEmail   String?
   contactName    String?
-  notes          String?  @db.Text
+  notes          String?      @db.Text
 
   companyProfiles CompanyProfile[]
   tenders         Tender[]
@@ -147,19 +147,19 @@ model Client {
 // =========================================================================
 
 model CompanyProfile {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   clientId       String?
-  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
-  name          String
+  name           String
   taxIdEncrypted String? // CIF/NIF cifrado
-  legalForm     String?
-  foundedYear   Int?
-  employeeCount Int?
-  description   String? @db.Text
-  isDefault     Boolean @default(false)
+  legalForm      String?
+  foundedYear    Int?
+  employeeCount  Int?
+  description    String? @db.Text
+  isDefault      Boolean @default(false)
 
   revenueYears   RevenueYear[]
   certifications Certification[]
@@ -177,18 +177,18 @@ model CompanyProfile {
 
 /// Facturación anual (últimos ejercicios) — cifrada por ser dato fiscal sensible.
 model RevenueYear {
-  id               String @id @default(cuid())
+  id               String         @id @default(cuid())
   companyProfileId String
   companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
   year             Int
   amountEncrypted  String // importe cifrado (unidades enteras de currency)
-  currency         String @default("EUR")
+  currency         String         @default("EUR")
 
   @@unique([companyProfileId, year])
 }
 
 model Certification {
-  id                String    @id @default(cuid())
+  id                String         @id @default(cuid())
   companyProfileId  String
   companyProfile    CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
   name              String // p.ej. "ISO 9001", "ISO 27001", "ENS"
@@ -206,14 +206,14 @@ model Certification {
 }
 
 model ExperienceReference {
-  id               String    @id @default(cuid())
+  id               String         @id @default(cuid())
   companyProfileId String
   companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
   title            String
   clientName       String
-  description      String?   @db.Text
+  description      String?        @db.Text
   amountEncrypted  String? // importe del contrato, cifrado
-  currency         String    @default("EUR")
+  currency         String         @default("EUR")
   startDate        DateTime?
   endDate          DateTime?
   sector           String?
@@ -225,13 +225,13 @@ model ExperienceReference {
 }
 
 model TeamMember {
-  id               String  @id @default(cuid())
+  id               String         @id @default(cuid())
   companyProfileId String
   companyProfile   CompanyProfile @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
   name             String
   role             String
   yearsExperience  Int?
-  qualifications   String? @db.Text
+  qualifications   String?        @db.Text
 
   createdAt DateTime @default(now())
 
@@ -258,13 +258,13 @@ enum TenderSourceType {
 }
 
 model Tender {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   clientId       String?
-  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client         Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   uploadedById   String
-  uploadedBy     User     @relation("TenderUploadedBy", fields: [uploadedById], references: [id])
+  uploadedBy     User         @relation("TenderUploadedBy", fields: [uploadedById], references: [id])
 
   title           String
   sourceType      TenderSourceType @default(PUBLIC_TENDER)
@@ -278,9 +278,11 @@ model Tender {
   status        TenderStatus @default(UPLOADING)
   statusMessage String?
 
-  extractedText      String?  @db.Text
-  extractedTextIsOcr Boolean  @default(false)
+  extractedText      String? @db.Text
+  extractedTextIsOcr Boolean @default(false)
   extractionMethod   String? // "pdf-parse" | "tesseract-ocr"
+
+  documentBlocks TenderDocumentBlock[]
 
   submissionDeadline    DateTime?
   clarificationDeadline DateTime?
@@ -296,6 +298,46 @@ model Tender {
 
   @@index([organizationId, status])
   @@index([organizationId, submissionDeadline])
+}
+
+// =========================================================================
+// Indexación estructural del PDF (RAG de alta precisión, anti-alucinación)
+// =========================================================================
+//
+// Un bloque = un párrafo detectado en el PDF, con su página, la cláusula
+// vigente en ese punto del documento (si el pliego numera cláusulas) y su
+// bounding box normalizado (0..1, origen arriba-izquierda) para que el
+// visor split-screen pueda hacer scroll y resaltar el recuadro exacto.
+// Solo se genera para la capa de texto nativa del PDF (ver
+// src/server/pdf/structural-extract.ts) — un pliego escaneado que cae a
+// OCR no tiene bounding boxes fiables, así que sus citas se marcan
+// "pendiente de revisión humana" en vez de intentar verificarlas a ciegas.
+
+enum PliegoDocument {
+  PCAP // Pliego de Cláusulas Administrativas Particulares
+  PPT // Pliego de Prescripciones Técnicas
+}
+
+model TenderDocumentBlock {
+  id       String @id @default(cuid())
+  tenderId String
+  tender   Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  documento PliegoDocument
+  pagina    Int
+  clausula  String?
+  parrafo   Int
+  text      String         @db.Text
+
+  bboxX Float
+  bboxY Float
+  bboxW Float
+  bboxH Float
+
+  order Int
+
+  @@index([tenderId, pagina])
+  @@index([tenderId, order])
 }
 
 // =========================================================================
@@ -316,9 +358,9 @@ enum EligibilityStatus {
 }
 
 model TenderAnalysis {
-  id               String   @id @default(cuid())
+  id               String          @id @default(cuid())
   tenderId         String
-  tender           Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tender           Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
   companyProfileId String?
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
 
@@ -332,11 +374,11 @@ model TenderAnalysis {
   scopeSummary         String? @db.Text
   executiveSummaryJson Json?
 
-  eligibilityStatus EligibilityStatus?
-  eligibilityScore  Float? // 0-100, heurística ponderada
+  eligibilityStatus          EligibilityStatus?
+  eligibilityScore           Float? // 0-100, heurística ponderada
   /// true si el pliego no tenía una sección de requisitos/solvencia clara y
   /// la extracción es una mejor estimación (ver ARCHITECTURE.md, pipeline IA).
-  requirementsSectionUnclear Boolean @default(false)
+  requirementsSectionUnclear Boolean            @default(false)
 
   requirements      ExclusionRequirement[]
   scoringCriteria   ScoringCriterion[]
@@ -358,17 +400,53 @@ enum RequirementCategory {
   OTHER
 }
 
+/// Taxonomía jurídica exacta que exponemos a Claude y al usuario — más fina
+/// que `RequirementCategory`, que sigue siendo la clave de despacho interna
+/// del motor de cruce (src/server/eligibility/engine.ts) y no se toca: se
+/// deriva de `tipo` de forma determinista al persistir (ver
+/// src/ai/requirement-mapping.ts), así que los 47 tests existentes del
+/// motor y sus datos de entrada no cambian.
+enum LegalRequirementType {
+  SOLVENCIA_ECONOMICA
+  SOLVENCIA_TECNICA
+  HABILITACION_EMPRESARIAL
+  PROHIBICION_CONTRATAR
+}
+
+enum RequirementCertaintyLevel {
+  ALTO
+  DUDOSO
+  AMBIGUO
+}
+
 model ExclusionRequirement {
-  id             String   @id @default(cuid())
+  id             String              @id @default(cuid())
   analysisId     String
-  analysis       TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysis       TenderAnalysis      @relation(fields: [analysisId], references: [id], onDelete: Cascade)
   category       RequirementCategory
-  description    String   @db.Text
-  citationText   String?  @db.Text // cita textual del pliego
+  description    String              @db.Text
+  citationText   String?             @db.Text // cita textual del pliego
   citationPage   Int?
   citationClause String?
-  isMandatory    Boolean  @default(true)
-  order          Int      @default(0)
+  isMandatory    Boolean             @default(true)
+  order          Int                 @default(0)
+
+  /// Campos del guardrail anti-alucinación (ver ARCHITECTURE.md § RAG
+  /// estructural) — todos nullable/con default para no romper análisis
+  /// anteriores a su introducción.
+  tipo                    LegalRequirementType?
+  esExcluyente            Boolean?
+  documentoPliego         PliegoDocument?
+  nivelCerteza            RequirementCertaintyLevel?
+  /// true si la verificación determinista (fuzzy match de `citationText`
+  /// contra el texto real de `citationPage`) no encontró una coincidencia
+  /// suficiente — el motor de elegibilidad nunca deja este requisito en
+  /// GREEN mientras esté así, sea cual sea el resultado del matcher.
+  pendienteRevisionHumana Boolean                    @default(false)
+  bboxX                   Float?
+  bboxY                   Float?
+  bboxW                   Float?
+  bboxH                   Float?
 
   eligibilityCheck EligibilityCheck?
 
@@ -378,14 +456,25 @@ model ExclusionRequirement {
 }
 
 model ScoringCriterion {
-  id            String   @id @default(cuid())
+  id            String         @id @default(cuid())
   analysisId    String
   analysis      TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
   name          String
-  description   String?  @db.Text
+  description   String?        @db.Text
   weightPercent Float
   maxPoints     Float?
-  order         Int      @default(0)
+  order         Int            @default(0)
+
+  citationText            String?                    @db.Text
+  citationPage            Int?
+  citationClause          String?
+  documentoPliego         PliegoDocument?
+  nivelCerteza            RequirementCertaintyLevel?
+  pendienteRevisionHumana Boolean                    @default(false)
+  bboxX                   Float?
+  bboxY                   Float?
+  bboxW                   Float?
+  bboxH                   Float?
 
   @@index([analysisId])
 }
@@ -394,13 +483,13 @@ model ScoringCriterion {
 /// negocio más crítica de la app (un falso GREEN puede costarle la licitación
 /// al cliente), ver src/server/eligibility/*.
 model EligibilityCheck {
-  id                 String   @id @default(cuid())
+  id                 String               @id @default(cuid())
   analysisId         String
-  analysis           TenderAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
-  requirementId      String   @unique
+  analysis           TenderAnalysis       @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  requirementId      String               @unique
   requirement        ExclusionRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
   status             EligibilityStatus
-  reasoning          String   @db.Text
+  reasoning          String               @db.Text
   matchedProfileFact String? // qué dato del perfil determinó el resultado
 
   createdAt DateTime @default(now())
@@ -428,9 +517,9 @@ enum SectionStatus {
 }
 
 model ProposalDraft {
-  id               String   @id @default(cuid())
+  id               String          @id @default(cuid())
   tenderId         String
-  tender           Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  tender           Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
   companyProfileId String?
   companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
 
@@ -448,17 +537,17 @@ model ProposalDraft {
 }
 
 model ProposalSection {
-  id       String  @id @default(cuid())
+  id       String            @id @default(cuid())
   draftId  String
-  draft    ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  draft    ProposalDraft     @relation(fields: [draftId], references: [id], onDelete: Cascade)
   parentId String?
   parent   ProposalSection?  @relation("SectionChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children ProposalSection[] @relation("SectionChildren")
 
   order           Int
   title           String
-  instructions    String? @db.Text // qué exige el pliego para esta sección
-  content         String? @db.Text // markdown
+  instructions    String?       @db.Text // qué exige el pliego para esta sección
+  content         String?       @db.Text // markdown
   status          SectionStatus @default(EMPTY)
   errorMessage    String?
   wordCountTarget Int?
@@ -476,7 +565,7 @@ enum ExportFormat {
 }
 
 model ProposalExport {
-  id      String @id @default(cuid())
+  id      String        @id @default(cuid())
   draftId String
   draft   ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
   format  ExportFormat
@@ -506,8 +595,8 @@ enum SubscriptionStatus {
 }
 
 model Subscription {
-  id             String   @id @default(cuid())
-  organizationId String   @unique
+  id             String       @id @default(cuid())
+  organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   plan                 PlanType           @default(PAY_AS_YOU_GO)
@@ -533,7 +622,7 @@ enum CreditReason {
 /// Ledger append-only: el saldo de créditos es siempre la suma de deltas,
 /// nunca un contador mutable — evita condiciones de carrera y facilita auditar.
 model CreditLedgerEntry {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   organizationId  String
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   delta           Int
@@ -552,11 +641,11 @@ model CreditLedgerEntry {
 // =========================================================================
 
 model AlertKeyword {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   keyword        String
-  active         Boolean  @default(true)
+  active         Boolean      @default(true)
 
   matches AlertMatch[]
 
@@ -566,7 +655,7 @@ model AlertKeyword {
 }
 
 model AlertMatch {
-  id             String    @id @default(cuid())
+  id             String       @id @default(cuid())
   alertKeywordId String
   alertKeyword   AlertKeyword @relation(fields: [alertKeywordId], references: [id], onDelete: Cascade)
   title          String
@@ -585,13 +674,13 @@ model AlertMatch {
 // =========================================================================
 
 model AiUsageLog {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   tenderId       String?
-  tender         Tender?  @relation(fields: [tenderId], references: [id], onDelete: SetNull)
+  tender         Tender?      @relation(fields: [tenderId], references: [id], onDelete: SetNull)
   userId         String?
-  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   step             String // "requirements-extraction" | "executive-summary" | "eligibility-crosscheck" | "proposal-outline" | "section-generation"
   model            String

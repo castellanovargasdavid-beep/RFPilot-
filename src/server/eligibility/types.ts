@@ -22,6 +22,12 @@ export interface EligibilityRequirement {
   description: string;
   citationText: string | null;
   isMandatory: boolean;
+  /**
+   * true si el guardrail determinista (ver src/server/pdf/verify-citation.ts)
+   * no pudo verificar `citationText` contra el texto real del pliego. El
+   * motor nunca deja un requisito así en GREEN — ver evaluateRequirement.
+   */
+  pendienteRevisionHumana?: boolean;
 }
 
 export interface EligibilityContext {

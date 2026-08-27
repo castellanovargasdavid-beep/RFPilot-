@@ -18,6 +18,8 @@ import path from "path";
 
 import { encryptField, encryptAmount } from "../src/lib/crypto";
 import { extractTenderDocument } from "../src/server/pdf";
+import { verifyCitation } from "../src/server/pdf/verify-citation";
+import type { StructuralBlock } from "../src/server/pdf/structural-extract";
 import { saveLocalFile } from "../src/server/storage/local";
 import {
   MOCK_TENDER_TITLE,
@@ -149,6 +151,35 @@ async function main() {
     },
   });
 
+  // --- Bloques estructurales reales (RAG anti-alucinación) — el mismo
+  // paso que corre extract-tender.ts en producción, para poder demostrar
+  // el visor split-screen y el guardrail de citas con datos genuinos. ---
+  if (extraction.structuralBlocks.length > 0) {
+    await prisma.tenderDocumentBlock.createMany({
+      data: extraction.structuralBlocks.map((block) => ({
+        tenderId: tender.id,
+        documento: "PCAP" as const,
+        pagina: block.pagina,
+        clausula: block.clausula,
+        parrafo: block.parrafo,
+        text: block.text,
+        bboxX: block.bboxX,
+        bboxY: block.bboxY,
+        bboxW: block.bboxW,
+        bboxH: block.bboxH,
+        order: block.order,
+      })),
+    });
+  }
+  const structuralBlocks: StructuralBlock[] = extraction.structuralBlocks;
+
+  /** Verifica cada cita contra los bloques reales, exactamente igual que el pipeline real (analyze-tender.ts). */
+  function verify(citationText: string, page: number) {
+    if (structuralBlocks.length === 0) return { pendienteRevisionHumana: true, bbox: null };
+    const result = verifyCitation(citationText, page, structuralBlocks);
+    return { pendienteRevisionHumana: !result.verified, bbox: result.matchedBlock };
+  }
+
   const analysis = await prisma.tenderAnalysis.create({
     data: {
       tenderId: tender.id,
@@ -177,6 +208,7 @@ async function main() {
     [
       {
         category: "CERTIFICATION" as const,
+        tipo: "SOLVENCIA_TECNICA" as const,
         description: "Estar en posesión del certificado ISO 9001 de gestión de la calidad, en vigor.",
         citationText: "Certificado ISO 9001 de gestión de la calidad, en vigor. Requisito excluyente.",
         citationPage: 3,
@@ -185,6 +217,7 @@ async function main() {
       },
       {
         category: "CERTIFICATION" as const,
+        tipo: "SOLVENCIA_TECNICA" as const,
         description:
           "Estar en posesión del certificado ISO/IEC 27001 de gestión de la seguridad de la información, en vigor.",
         citationText:
@@ -195,27 +228,34 @@ async function main() {
       },
       {
         category: "CERTIFICATION" as const,
+        tipo: "SOLVENCIA_TECNICA" as const,
         description: "Disponer de la certificación en el Esquema Nacional de Seguridad (ENS), categoría media o superior.",
         citationText:
-          "Se valorará adicionalmente, sin ser excluyente, la certificación en el Esquema Nacional de Seguridad (ENS), categoría media o superior.",
+          "Se valorará adicionalmente, sin ser excluyente, la certificación en el Esquema Nacional de Seguridad (ENS), categoría media o superior",
         citationPage: 3,
         citationClause: "Cláusula 5.3",
         isMandatory: false,
       },
       {
         category: "FINANCIAL" as const,
+        tipo: "SOLVENCIA_ECONOMICA" as const,
         description:
           "Acreditar un volumen anual de negocios mínimo de 500.000 € en el año de mayor facturación de los últimos tres ejercicios.",
         citationText:
-          "La solvencia económica y financiera se acreditará mediante el volumen anual de negocios del licitador, que deberá alcanzar como mínimo el importe de 500.000 €.",
+          "La solvencia económica y financiera se acreditará mediante el volumen anual de negocios del licitador, que referido al año de mayor volumen de los tres últimos concluidos deberá alcanzar como mínimo el importe de 500.000 € (quinientos mil euros).",
         citationPage: 3,
         citationClause: "Cláusula 5.1",
         isMandatory: true,
       },
       {
         category: "TECHNICAL_EXPERIENCE" as const,
+        tipo: "SOLVENCIA_TECNICA" as const,
         description:
           "Haber ejecutado al menos 2 contratos de mantenimiento de sistemas informáticos de administraciones públicas o entidades similares en los últimos 5 años, por importe unitario mínimo de 150.000 €.",
+        // Cita deliberadamente imprecisa (paráfrasis con pequeñas omisiones respecto al texto
+        // real del pliego) — a propósito, para que el guardrail de verify-citation.ts la marque
+        // "pendiente de revisión humana" y así se pueda ver ese estado con datos genuinos en la
+        // demo, no simulados. Ver ARCHITECTURE.md § RAG estructural.
         citationText:
           "El licitador deberá acreditar la ejecución de, al menos, 2 (dos) contratos de mantenimiento de sistemas informáticos de administraciones públicas, de importe unitario no inferior a 150.000 € cada uno.",
         citationPage: 3,
@@ -224,36 +264,54 @@ async function main() {
       },
       {
         category: "INSURANCE" as const,
+        tipo: "SOLVENCIA_ECONOMICA" as const,
         description: "Disponer de un seguro de responsabilidad civil con un límite mínimo de 300.000 € por siniestro.",
         citationText:
-          "El licitador deberá disponer de un seguro de responsabilidad civil con un límite mínimo de indemnización de 300.000 € por siniestro.",
-        citationPage: 4,
+          "El licitador deberá disponer de un seguro de responsabilidad civil que cubra los daños que pudieran derivarse de la ejecución del contrato, con un límite mínimo de indemnización de 300.000 € por siniestro.",
+        citationPage: 3,
         citationClause: "Cláusula 5.4",
         isMandatory: true,
       },
       {
         category: "TEAM_QUALIFICATION" as const,
+        tipo: "SOLVENCIA_TECNICA" as const,
         description:
           "Disponer de al menos un técnico con certificación ITIL v4 Foundation y un mínimo de 5 años de experiencia en gestión de servicios TI.",
         citationText:
-          "El licitador deberá disponer de al menos un técnico con certificación ITIL v4 Foundation (o superior) y un mínimo de 5 años de experiencia en gestión de servicios TI.",
-        citationPage: 4,
+          "El licitador deberá disponer, dentro de su plantilla o mediante compromiso de adscripción, de al menos un técnico con certificación ITIL v4 Foundation (o superior) y un mínimo de 5 años de experiencia en gestión de servicios TI",
+        citationPage: 3,
         citationClause: "Cláusula 5.5",
         isMandatory: true,
       },
       {
         category: "LEGAL_ADMINISTRATIVE" as const,
+        tipo: "PROHIBICION_CONTRATAR" as const,
         description:
           "No estar incurso en prohibición de contratar y hallarse al corriente de obligaciones tributarias y con la Seguridad Social.",
         citationText:
-          "Declaración responsable conforme al modelo del Anexo II, no estando incursos en prohibición de contratar, y hallándose al corriente en el cumplimiento de sus obligaciones tributarias y con la Seguridad Social.",
+          "declaración responsable conforme al modelo del Anexo II, no estando incursos en prohibición de contratar, y hallándose al corriente en el cumplimiento de sus obligaciones tributarias y con la Seguridad Social.",
         citationPage: 4,
         citationClause: "Cláusula 6",
         isMandatory: true,
       },
-    ].map((req, index) =>
-      prisma.exclusionRequirement.create({ data: { analysisId: analysis.id, order: index, ...req } })
-    )
+    ].map((req, index) => {
+      const { pendienteRevisionHumana, bbox } = verify(req.citationText, req.citationPage);
+      return prisma.exclusionRequirement.create({
+        data: {
+          analysisId: analysis.id,
+          order: index,
+          ...req,
+          esExcluyente: req.isMandatory,
+          documentoPliego: "PCAP",
+          nivelCerteza: "ALTO",
+          pendienteRevisionHumana,
+          bboxX: bbox?.bboxX ?? null,
+          bboxY: bbox?.bboxY ?? null,
+          bboxW: bbox?.bboxW ?? null,
+          bboxH: bbox?.bboxH ?? null,
+        },
+      });
+    })
   );
 
   await prisma.scoringCriterion.createMany({
@@ -366,9 +424,14 @@ async function main() {
     },
   });
 
+  const pendingReview = await prisma.exclusionRequirement.count({
+    where: { analysisId: analysis.id, pendienteRevisionHumana: true },
+  });
+
   console.log(`Seed completo. Login: ${email} / demo12345`);
   console.log(`Licitación de demo creada con semáforo: ${rollup.status} (score ${rollup.score}/100).`);
-  console.log(`Requisitos sembrados: ${requirements.length}.`);
+  console.log(`Requisitos sembrados: ${requirements.length} (${pendingReview} pendientes de revisión humana por el guardrail de citas).`);
+  console.log(`Bloques estructurales indexados: ${structuralBlocks.length}.`);
 }
 
 main()

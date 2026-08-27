@@ -380,7 +380,9 @@ nº de referencias) — nunca por ausencia de datos.
   `ScoringCriterion` se insertan a mano porque no hay `ANTHROPIC_API_KEY`
   en el entorno de build, para no depender de una llamada real a Claude
   solo para tener una demo. El resultado: `npm run prisma:seed` deja una
-  licitación `READY` con semáforo **RED real** (score 57/100, calculado
+  licitación `READY` con semáforo **RED real** (score 50/100 desde la Fase
+  9 — antes 57/100; el guardrail de citas descrito en "RAG estructural"
+  más abajo baja uno de los ocho requisitos de GREEN a AMBER, calculado
   por el motor determinista, no hardcodeado) — un caso instructivo de "casi
   cumples, pero no del todo", justo el problema que el producto existe
   para resolver.
@@ -460,6 +462,186 @@ nº de referencias) — nunca por ausencia de datos.
 - **Total: 53 tests unitarios/integración (Vitest) + 6 tests E2E
   (Playwright)**, todos verdes. `npm run test:e2e` corre el E2E;
   `npm run test`, el resto.
+
+## RAG estructural y guardrails anti-alucinación (post-lanzamiento)
+
+Ampliación del pipeline de IA (Fase 3) pedida explícitamente como "arquitectura
+de extracción y análisis bajo reglas estrictas anti-alucinación": indexación
+estructural del PDF con bounding boxes, un visor split-screen navegable,
+schemas Zod más estrictos, un guardrail determinista que verifica cada cita
+contra el documento real, y prompts especializados PCAP/PPT. Sustituye
+la extracción de requisitos de la Fase 3 (que sigue documentada más
+arriba como registro histórico de esa fase).
+
+### 1. Parsing estructural (`src/server/pdf/structural-extract.ts`)
+
+pdfjs-dist expone, para cada fragmento de texto de una página, su
+`transform` (posición) y `height`/`width` — con eso, sin ninguna
+dependencia nueva, se puede reconstruir: items → líneas (agrupadas por
+proximidad vertical) → párrafos (corte en cada cambio de cláusula
+detectado por regex, o en un hueco vertical > 1.6× la altura media de
+línea). Cada párrafo se guarda como `TenderDocumentBlock` con
+`{ pagina, clausula, parrafo, text, bbox }`, con el bbox normalizado a
+0..1 (fracción del ancho/alto de página) para que el frontend no tenga
+que conocer el DPI de renderizado. Es una heurística, no un parser de
+diseño de página real — no gestiona bien columnas múltiples ni tablas
+complejas; para el tipo de documento objetivo (pliegos con clausulado
+numerado y prosa continua) funciona bien, verificado contra el pliego
+ficticio real (`structural-extract.integration.test.ts`).
+
+El texto que se manda a Claude ahora lleva marcadores `[PÁGINA n]`
+delante del contenido de cada página (antes solo se concatenaba el texto
+plano) — sin esto, `citationPage` era una estimación del modelo sin
+fundamento real en el texto que veía; con los marcadores, el modelo cita
+páginas que existen de verdad en su propio contexto.
+
+Solo se genera para la capa de texto nativa del PDF. Un pliego que cae a
+OCR (ver "Extracción de PDF" más arriba) no tiene bounding boxes fiables
+— sus citas se marcan `pendienteRevisionHumana: true` sin intentar
+verificarlas, en vez de fingir una verificación que no se puede hacer
+bien.
+
+### 2. Prompts especializados PCAP / PPT
+
+`src/ai/analyze-pcap.ts` (solvencia económica/técnica, habilitación
+empresarial, prohibición de contratar, resumen ejecutivo) y
+`src/ai/analyze-ppt.ts` (criterios de adjudicación/baremo, requisitos
+técnicos eliminatorios) son dos llamadas independientes a Claude con
+prompts, schemas y responsabilidades distintas — mezclar ambos registros
+legales en un único prompt genérico es precisamente el tipo de vaguedad
+que produce alucinaciones.
+
+**Decisión de alcance**: de momento la app sigue aceptando un único PDF
+por licitación (no una subida separada de PCAP y PPT) — ambas llamadas
+analizan el mismo texto, y es el propio modelo quien etiqueta
+`referencia.pliego` por cita según el contenido (administrativo → PCAP,
+técnico → PPT), que es realista porque la mayoría de pliegos españoles
+publican PCAP+PPT como anexos de un mismo expediente o el usuario los
+concatena antes de subir. La ventaja añadida: al compartir el mismo
+prefijo de documento, la segunda llamada (PPT) reutiliza el caché que
+escribe la primera (PCAP) — ver "Pipeline de IA" más arriba sobre prompt
+caching. Soportar dos archivos separados (con su propio bbox por
+documento) es la extensión natural si se necesita más adelante; el
+modelo de datos (`documento: PCAP | PPT` en cada bloque y cada
+requisito) ya está preparado para ello.
+
+### 3. Schemas Zod estrictos (`src/ai/schemas/pcap-extraction.ts`, `ppt-extraction.ts`)
+
+Cada requisito que devuelve Claude incluye obligatoriamente `tipo`
+(`SOLVENCIA_ECONOMICA` / `SOLVENCIA_TECNICA` / `HABILITACION_EMPRESARIAL`
+/ `PROHIBICION_CONTRATAR`, más `CRITERIO_ADJUDICACION` para el baremo del
+PPT), `es_excluyente`, `cita_literal` (copia textual, nunca parafraseada
+— para eso está el campo `descripcion` aparte), `referencia: { pliego,
+clausula, pagina }` y `nivel_certeza` (`ALTO`/`DUDOSO`/`AMBIGUO`, la
+propia confianza del modelo — nunca se confía en este campo a solas, ver
+guardrail más abajo). Sigue usando `zodOutputFormat()` +
+`client.messages.parse()`/`.stream()` como el resto del pipeline (Fase
+3), sin cambios en esa mecánica.
+
+### 4. Guardrail determinista de citas (`src/server/pdf/verify-citation.ts`)
+
+Antes de dar por buena una `cita_literal`, se comprueba que existe de
+verdad en la página que el propio modelo dice haber citado — nunca se
+confía en `nivel_certeza` a solas, esta comprobación es independiente y
+puede degradar el resultado aunque el modelo diga `ALTO`:
+
+1. Se filtran los `TenderDocumentBlock` de esa página.
+2. Coincidencia exacta (substring, tras normalizar acentos/mayúsculas):
+   si aparece tal cual, verificado con similitud 1.
+3. Si no, similitud fuzzy: distancia de Levenshtein sobre una ventana
+   deslizante del tamaño de la cita, tomando el mejor resultado entre
+   los bloques de la página — umbral 0.85 para considerar verificado.
+4. Una cita puede quedar partida entre dos párrafos si el extractor
+   cortó donde no debía — se prueba también la unión de cada par de
+   bloques consecutivos antes de rendirse.
+5. Sin bloques para esa página (documento sin indexación estructural,
+   p.ej. tras OCR) → no verificado, sin intentar adivinar.
+
+Si no se verifica, el requisito se marca `pendienteRevisionHumana: true`
+en vez de descartarse — sigue siendo información útil, solo que no
+fiable sin ojo humano.
+
+### 5. El guardrail alimenta el motor de elegibilidad, no solo la UI
+
+`pendienteRevisionHumana` no es solo una etiqueta visual: se pasa al
+motor de cruce (`src/server/eligibility/engine.ts`) y, si un requisito
+así resulta `GREEN` por el matcher, se degrada a `AMBER` con una nota
+explicando por qué — nunca se sube un resultado (RED nunca se convierte
+en algo mejor), solo se evita que una cita no verificada produzca un
+falso "cumples". Es exactamente el mismo principio de diseño que ya
+regía el motor ("ante la duda, AMBER, nunca GREEN"), extendido para
+cubrir también la fiabilidad del dato de partida, no solo el cruce
+contra el perfil. Cambio aditivo y sin riesgo para el resto del motor:
+`pendienteRevisionHumana` es un campo opcional en `EligibilityRequirement`
+— los 47 tests existentes, que no lo usan, siguen pasando sin tocarlos
+(ver `engine.test.ts` → describe "guardrail pendienteRevisionHumana"
+para los 3 tests nuevos que cubren específicamente este comportamiento).
+
+### 6. Compatibilidad con el motor existente: `tipo` → `category`
+
+`RequirementCategory` (`CERTIFICATION`/`FINANCIAL`/...) sigue siendo la
+clave de despacho interna de los matchers (`src/server/eligibility/matchers/`)
+— no se ha tocado. `src/ai/requirement-mapping.ts` deriva `category` a
+partir de `tipo` de forma determinista al persistir. El caso delicado es
+`SOLVENCIA_TECNICA`/`HABILITACION_EMPRESARIAL`: en la práctica española
+una ISO 9001/27001 se describe a veces como solvencia técnica y a veces
+como habilitación — en ambos casos, si el texto contiene un código de
+norma reconocible (ISO/UNE/ENS, vía el `extractStandardCodes` que ya
+usaba el matcher de certificaciones), se enruta a `CERTIFICATION`
+igual que antes. Sin esta salvaguarda, certificaciones habrían dejado de
+pasar por el matcher específico de certificaciones — justo el tipo de
+regresión silenciosa que este proyecto no se puede permitir. Verificado
+con tests dedicados (`src/ai/requirement-mapping.test.ts`).
+
+### 7. Visor split-screen (`src/components/tenders/pdf-split-viewer.tsx`)
+
+Cliente puro: `pdfjs-dist` importado dinámicamente dentro de un
+`"use client"`, renderiza cada página a `<canvas>`, y un `<div>`
+absoluto posicionado por porcentaje (a partir del bbox normalizado)
+dibuja el resaltado. Al hacer clic en "Ver en el PDF" sobre cualquier
+requisito o criterio con bbox disponible, el visor cambia de página y
+hace `scrollIntoView` sobre el resaltado. Carga el PDF a través del
+proxy autenticado ya existente (`/api/tenders/[id]/file`), nunca la URL
+directa de Blob.
+
+El worker de pdfjs (`pdf.worker.min.mjs`) se sirve desde `/public` en
+vez de un CDN — el mismo motivo que llevó a empaquetar los datos de
+idioma de Tesseract como dependencia npm en la Fase 2: el proxy de
+egress del entorno de desarrollo bloqueaba jsdelivr.net, y depender de
+un CDN externo en producción es una dependencia de disponibilidad
+innecesaria. Riesgo aceptado: si se actualiza la versión de
+`pdfjs-dist`, hay que volver a copiar el worker a mano (`cp
+node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs public/`) — no
+hay un script de postinstall automatizándolo, documentado aquí en vez de
+añadir una tarea de build por un archivo que cambia solo cuando se
+actualiza esa dependencia concreta.
+
+`next.config.mjs` añade `resolve.fallback.canvas = false` en el bundle
+de cliente: el build de navegador de pdfjs-dist referencia
+opcionalmente el paquete `canvas` de Node como fallback, que ni existe
+ni hace falta en el cliente (el navegador ya da `<canvas>` nativo).
+
+### 8. Verificación con datos reales, no simulados
+
+`prisma/seed.ts` ahora persiste los `TenderDocumentBlock` reales que
+produce `extractStructuralDocument()` sobre el pliego ficticio, y corre
+el guardrail real (`verifyCitation`) sobre las 8 citas sintéticas del
+seed — no se marca a mano qué requisito queda "pendiente de revisión",
+lo decide el mismo código que corre en producción. Al escribirlo se
+descubrieron y corrigieron dos páginas de cita incorrectas en los datos
+sintéticos (cláusulas 5.4 y 5.5 están en la página 3 del PDF generado,
+no en la 4 como tenía el seed desde la Fase 7) — el guardrail las
+detectó exactamente para eso. Queda deliberadamente **una** cita
+imprecisa (el requisito de "2 contratos", con una paráfrasis con
+pequeñas omisiones respecto al texto real) para poder ver el estado
+"pendiente de revisión humana" con datos genuinos en la demo. Resultado
+real tras el cambio: semáforo RED, score 50/100 (antes 57/100 — baja
+porque ese requisito pasa de GREEN a AMBER por el guardrail, un cambio
+de comportamiento correcto, no un bug).
+
+También hay tests de integración reales contra el pliego ficticio
+(`src/server/pdf/structural-extract.integration.test.ts`): confirman que
+una cita real del pliego se verifica y que una inventada no, sin mocks.
 
 ## Rediseño visual de la landing (post-lanzamiento)
 

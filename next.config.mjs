@@ -17,6 +17,18 @@ const nextConfig = {
       "@tesseract.js-data/eng",
     ],
   },
+  // El visor de PDF (src/components/tenders/pdf-split-viewer.tsx) importa
+  // pdfjs-dist dinámicamente EN EL CLIENTE para renderizar páginas en
+  // <canvas>. Su build de navegador referencia opcionalmente el paquete
+  // `canvas` de Node como fallback — no existe (ni hace falta) en el
+  // bundle de cliente, así que se desactiva explícitamente para que
+  // webpack no intente resolverlo.
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = { ...config.resolve.fallback, canvas: false };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

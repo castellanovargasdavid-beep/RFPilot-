@@ -7,10 +7,13 @@ import {
   AlertTriangle,
   Calendar,
   CalendarClock,
+  Eye,
+  FileSearch,
   FileText,
   Loader2,
   RotateCw,
   ScrollText,
+  ShieldQuestion,
   Sparkles,
   Wallet,
 } from "lucide-react";
@@ -26,6 +29,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { TenderStatusBadge, EligibilityBadge } from "@/components/tenders/status-badge";
+import { PdfSplitViewer, type PdfHighlightTarget } from "@/components/tenders/pdf-split-viewer";
 import { formatCurrency, formatDate, daysUntil, cn } from "@/lib/utils";
 import type { TenderDetail } from "@/server/tenders/detail-select";
 
@@ -40,6 +44,27 @@ const REQUIREMENT_CATEGORY_LABELS: Record<string, string> = {
   INSURANCE: "Seguro",
   OTHER: "Otro",
 };
+const LEGAL_TYPE_LABELS: Record<string, string> = {
+  SOLVENCIA_ECONOMICA: "Solvencia económica",
+  SOLVENCIA_TECNICA: "Solvencia técnica",
+  HABILITACION_EMPRESARIAL: "Habilitación empresarial",
+  PROHIBICION_CONTRATAR: "Prohibición de contratar",
+};
+const CERTAINTY_LABELS: Record<string, string> = { ALTO: "Alta", DUDOSO: "Dudosa", AMBIGUO: "Ambigua" };
+const PLIEGO_LABELS: Record<string, string> = { PCAP: "PCAP", PPT: "PPT" };
+
+interface CitableItem {
+  citationText: string | null;
+  citationPage: number | null;
+  citationClause: string | null;
+  documentoPliego: string | null;
+  nivelCerteza: string | null;
+  pendienteRevisionHumana: boolean;
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
+}
 
 interface ExecutiveSummary {
   scopeSummary: string;
@@ -59,6 +84,24 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [updatingEligibility, setUpdatingEligibility] = useState(false);
   const [generatingProposal, setGeneratingProposal] = useState(false);
+  const [highlightTarget, setHighlightTarget] = useState<PdfHighlightTarget | null>(null);
+  const [highlightNonce, setHighlightNonce] = useState(0);
+
+  function locateInPdf(item: CitableItem) {
+    if (item.citationPage == null || item.bboxX == null || item.bboxY == null || item.bboxW == null || item.bboxH == null) {
+      return;
+    }
+    const nextNonce = highlightNonce + 1;
+    setHighlightNonce(nextNonce);
+    setHighlightTarget({
+      page: item.citationPage,
+      bboxX: item.bboxX,
+      bboxY: item.bboxY,
+      bboxW: item.bboxW,
+      bboxH: item.bboxH,
+      nonce: nextNonce,
+    });
+  }
 
   useEffect(() => {
     if (!POLLING_STATUSES.includes(tender.status)) return;
@@ -251,84 +294,161 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
             </div>
           )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-base">Requisitos excluyentes</CardTitle>
-                <CardDescription>
-                  {analysis.eligibilityStatus
-                    ? "Semáforo cruzado contra tu perfil de empresa."
-                    : "Aún no se ha cruzado contra tu perfil de empresa."}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                {analysis.eligibilityStatus && <EligibilityBadge status={analysis.eligibilityStatus} />}
-                <Button variant="outline" size="sm" onClick={handleUpdateEligibility} disabled={updatingEligibility}>
-                  {updatingEligibility ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
-                  Actualizar semáforo
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {analysis.requirements.length === 0 && (
-                <p className="text-sm text-muted-foreground">No se identificaron requisitos excluyentes explícitos.</p>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-base">Requisitos excluyentes</CardTitle>
+                    <CardDescription>
+                      {analysis.eligibilityStatus
+                        ? "Semáforo cruzado contra tu perfil de empresa."
+                        : "Aún no se ha cruzado contra tu perfil de empresa."}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {analysis.eligibilityStatus && <EligibilityBadge status={analysis.eligibilityStatus} />}
+                    <Button variant="outline" size="sm" onClick={handleUpdateEligibility} disabled={updatingEligibility}>
+                      {updatingEligibility ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                      Actualizar semáforo
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {analysis.requirements.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No se identificaron requisitos excluyentes explícitos.</p>
+                  )}
+                  {analysis.requirements.map((req) => (
+                    <RequirementCard
+                      key={req.id}
+                      eligibilityBadge={req.eligibilityCheck && <EligibilityBadge status={req.eligibilityCheck.status} />}
+                      categoryLabel={REQUIREMENT_CATEGORY_LABELS[req.category] ?? req.category}
+                      legalTypeLabel={req.tipo ? LEGAL_TYPE_LABELS[req.tipo] : null}
+                      isMandatory={req.isMandatory}
+                      description={req.description}
+                      reasoning={req.eligibilityCheck?.reasoning ?? null}
+                      item={req}
+                      onLocate={() => locateInPdf(req)}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+
+              {analysis.scoringCriteria.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Criterios de baremo</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {analysis.scoringCriteria.map((c) => (
+                      <div key={c.id}>
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="font-medium">{c.name}</span>
+                          <span className="shrink-0 text-muted-foreground">
+                            {c.weightPercent}% {c.maxPoints ? `(máx. ${c.maxPoints} pts)` : ""}
+                          </span>
+                        </div>
+                        {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
+                        <CitationFooter item={c} onLocate={() => locateInPdf(c)} />
+                        <Separator className="mt-3" />
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
               )}
-              {analysis.requirements.map((req) => (
-                <div key={req.id} className="rounded-lg border p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {req.eligibilityCheck && <EligibilityBadge status={req.eligibilityCheck.status} />}
-                    <Badge variant="outline">{REQUIREMENT_CATEGORY_LABELS[req.category] ?? req.category}</Badge>
-                    {!req.isMandatory && <Badge variant="secondary">Orientativo</Badge>}
-                  </div>
-                  <p className="mt-2 text-sm font-medium">{req.description}</p>
-                  {req.citationText && (
-                    <blockquote className="mt-2 border-l-2 pl-3 text-sm italic text-muted-foreground">
-                      &ldquo;{req.citationText}&rdquo;
-                      {(req.citationPage || req.citationClause) && (
-                        <span className="not-italic">
-                          {" "}
-                          —{req.citationPage ? ` pág. ${req.citationPage}` : ""}
-                          {req.citationClause ? ` ${req.citationClause}` : ""}
-                        </span>
-                      )}
-                    </blockquote>
-                  )}
-                  {req.eligibilityCheck && (
-                    <p className="mt-2 text-sm text-muted-foreground">{req.eligibilityCheck.reasoning}</p>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
 
-          {analysis.scoringCriteria.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Criterios de baremo</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {analysis.scoringCriteria.map((c) => (
-                  <div key={c.id}>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{c.name}</span>
-                      <span className="text-muted-foreground">
-                        {c.weightPercent}% {c.maxPoints ? `(máx. ${c.maxPoints} pts)` : ""}
-                      </span>
-                    </div>
-                    {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
-                    <Separator className="mt-3" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+              <Button onClick={handleGenerateProposal} disabled={generatingProposal}>
+                {generatingProposal ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Generar borrador de propuesta
+              </Button>
+            </div>
 
-          <Button onClick={handleGenerateProposal} disabled={generatingProposal}>
-            {generatingProposal ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Generar borrador de propuesta
-          </Button>
+            <div className="hidden lg:block">
+              <Card className="sticky top-6 h-[calc(100vh-8rem)] overflow-hidden p-0">
+                <PdfSplitViewer tenderId={tender.id} target={highlightTarget} />
+              </Card>
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CitationBadges({ item }: { item: CitableItem }) {
+  return (
+    <>
+      {item.pendienteRevisionHumana && (
+        <Badge variant="warning" className="gap-1">
+          <ShieldQuestion className="h-3 w-3" />
+          Pendiente de revisión
+        </Badge>
+      )}
+      {!item.pendienteRevisionHumana && item.nivelCerteza && item.nivelCerteza !== "ALTO" && (
+        <Badge variant="outline">Certeza {CERTAINTY_LABELS[item.nivelCerteza] ?? item.nivelCerteza}</Badge>
+      )}
+    </>
+  );
+}
+
+function CitationFooter({ item, onLocate }: { item: CitableItem; onLocate: () => void }) {
+  if (!item.citationText) return null;
+  const canLocate = item.bboxX != null && item.bboxY != null && item.bboxW != null && item.bboxH != null;
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <CitationBadges item={item} />
+      </div>
+      <blockquote className="border-l-2 pl-3 text-sm italic text-muted-foreground">
+        &ldquo;{item.citationText}&rdquo;
+        {(item.citationPage || item.citationClause || item.documentoPliego) && (
+          <span className="not-italic">
+            {" "}
+            —{item.documentoPliego ? ` ${PLIEGO_LABELS[item.documentoPliego] ?? item.documentoPliego},` : ""}
+            {item.citationPage ? ` pág. ${item.citationPage}` : ""}
+            {item.citationClause ? ` ${item.citationClause}` : ""}
+          </span>
+        )}
+        {canLocate && (
+          <Button type="button" variant="link" size="sm" className="ml-1 h-auto p-0 align-baseline not-italic" onClick={onLocate}>
+            <Eye className="h-3 w-3" /> Ver en el PDF
+          </Button>
+        )}
+      </blockquote>
+    </div>
+  );
+}
+
+function RequirementCard({
+  eligibilityBadge,
+  categoryLabel,
+  legalTypeLabel,
+  isMandatory,
+  description,
+  reasoning,
+  item,
+  onLocate,
+}: {
+  eligibilityBadge: React.ReactNode;
+  categoryLabel: string;
+  legalTypeLabel: string | null;
+  isMandatory: boolean;
+  description: string;
+  reasoning: string | null;
+  item: CitableItem;
+  onLocate: () => void;
+}) {
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {eligibilityBadge}
+        <Badge variant="outline">{legalTypeLabel ?? categoryLabel}</Badge>
+        {!isMandatory && <Badge variant="secondary">Orientativo</Badge>}
+      </div>
+      <p className="mt-2 text-sm font-medium">{description}</p>
+      <CitationFooter item={item} onLocate={onLocate} />
+      {reasoning && <p className="mt-2 text-sm text-muted-foreground">{reasoning}</p>}
     </div>
   );
 }

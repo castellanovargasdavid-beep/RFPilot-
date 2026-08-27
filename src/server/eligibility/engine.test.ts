@@ -273,6 +273,56 @@ describe("rollupEligibility", () => {
   });
 });
 
+describe("evaluateRequirement — guardrail pendienteRevisionHumana (RAG anti-alucinación)", () => {
+  it("degrada GREEN a AMBER si la cita no se pudo verificar contra el PDF, aunque el matcher encuentre coincidencia", () => {
+    const profile: EligibilityCompanyProfile = {
+      ...emptyProfile,
+      certifications: [{ name: "ISO 9001:2015", expiresAt: new Date("2027-01-01") }],
+    };
+    const result = evaluateRequirement(
+      req({
+        category: "CERTIFICATION",
+        description: "Estar en posesión del certificado ISO 9001 vigente",
+        pendienteRevisionHumana: true,
+      }),
+      profile,
+      context
+    );
+    expect(result.status).toBe("AMBER");
+    expect(result.reasoning).toContain("no se pudo verificar");
+  });
+
+  it("no toca un resultado RED aunque la cita esté pendiente de revisión — el guardrail solo baja GREEN, nunca sube RED", () => {
+    const result = evaluateRequirement(
+      req({
+        category: "CERTIFICATION",
+        description: "Estar en posesión del certificado ISO 27001 vigente",
+        pendienteRevisionHumana: true,
+      }),
+      emptyProfile,
+      context
+    );
+    expect(result.status).toBe("RED");
+  });
+
+  it("no afecta el resultado cuando pendienteRevisionHumana es false (comportamiento normal, sin cambios)", () => {
+    const profile: EligibilityCompanyProfile = {
+      ...emptyProfile,
+      certifications: [{ name: "ISO 9001:2015", expiresAt: new Date("2027-01-01") }],
+    };
+    const result = evaluateRequirement(
+      req({
+        category: "CERTIFICATION",
+        description: "Estar en posesión del certificado ISO 9001 vigente",
+        pendienteRevisionHumana: false,
+      }),
+      profile,
+      context
+    );
+    expect(result.status).toBe("GREEN");
+  });
+});
+
 describe("evaluateAllRequirements", () => {
   it("evalúa cada requisito de forma independiente y devuelve un resultado por cada uno", () => {
     const requirements = [

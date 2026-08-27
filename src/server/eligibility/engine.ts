@@ -40,7 +40,21 @@ export function evaluateRequirement(
   context: EligibilityContext
 ): EligibilityResult {
   const matcher = MATCHERS[requirement.category] ?? matchUnverifiableRequirement;
-  return matcher(requirement, profile, context);
+  const result = matcher(requirement, profile, context);
+
+  // Guardrail anti-alucinación: si la cita textual del requisito no se pudo
+  // verificar contra el PDF real, el requisito nunca queda en GREEN, por
+  // buena que sea la coincidencia con el perfil — el dato de partida (lo
+  // que exige el pliego) es lo que está en duda, no el cruce con el perfil.
+  if (requirement.pendienteRevisionHumana && result.status === "GREEN") {
+    return {
+      ...result,
+      status: "AMBER",
+      reasoning: `${result.reasoning} (La cita de este requisito no se pudo verificar automáticamente contra el texto del pliego — revísala manualmente antes de confiar en este resultado.)`,
+    };
+  }
+
+  return result;
 }
 
 export function evaluateAllRequirements(

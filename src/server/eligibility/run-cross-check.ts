@@ -42,6 +42,7 @@ export async function runEligibilityCrossCheck(tenderId: string, companyProfileI
     description: r.description,
     citationText: r.citationText,
     isMandatory: r.isMandatory,
+    pendienteRevisionHumana: r.pendienteRevisionHumana,
   }));
 
   const results = evaluateAllRequirements(requirements, profile, context);

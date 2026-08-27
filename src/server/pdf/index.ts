@@ -1,5 +1,6 @@
 import { extractPdfText } from "./extract-text";
 import { ocrPdfBuffer } from "./ocr";
+import { extractStructuralDocument, type StructuralBlock } from "./structural-extract";
 
 export class PdfExtractionError extends Error {}
 
@@ -9,6 +10,13 @@ export interface TenderExtractionResult {
   usedOcr: boolean;
   extractionMethod: "pdfjs-text" | "tesseract-ocr";
   warning?: string;
+  /**
+   * Bloques estructurales (página, cláusula, bounding box) para el
+   * guardrail anti-alucinación y el visor split-screen — solo se generan
+   * sobre la capa de texto nativa; un pliego que cae a OCR no los tiene
+   * (ver src/server/pdf/structural-extract.ts).
+   */
+  structuralBlocks: StructuralBlock[];
 }
 
 /**
@@ -29,11 +37,28 @@ export async function extractTenderDocument(buffer: Buffer): Promise<TenderExtra
   }
 
   if (!nativeResult.looksScanned) {
+    // Segunda pasada con pdfjs (barata, texto ya en memoria del sistema
+    // operativo/caché) para obtener también los bloques estructurales con
+    // bounding box — se mantiene como función separada de extractPdfText
+    // para no acoplar el camino OCR (que no la necesita) a esta lógica.
+    let structuralBlocks: StructuralBlock[] = [];
+    let pageMarkedText = nativeResult.text;
+    try {
+      const structural = await extractStructuralDocument(buffer);
+      structuralBlocks = structural.blocks;
+      pageMarkedText = structural.pageMarkedText;
+    } catch {
+      // La indexación estructural es una mejora, no un requisito — si falla
+      // (p.ej. un PDF con una capa de texto atípica), seguimos con el texto
+      // plano ya extraído; el guardrail simplemente no podrá verificar citas.
+    }
+
     return {
-      text: nativeResult.text,
+      text: pageMarkedText,
       pageCount: nativeResult.pageCount,
       usedOcr: false,
       extractionMethod: "pdfjs-text",
+      structuralBlocks,
     };
   }
 
@@ -47,6 +72,7 @@ export async function extractTenderDocument(buffer: Buffer): Promise<TenderExtra
       warning: ocrResult.truncated
         ? `El documento tiene ${ocrResult.totalPages} páginas escaneadas; por límite de procesamiento solo se analizaron por OCR las primeras ${ocrResult.pagesProcessed}.`
         : undefined,
+      structuralBlocks: [],
     };
   } catch (ocrError) {
     if (nativeResult.text.length > 0) {
@@ -56,6 +82,7 @@ export async function extractTenderDocument(buffer: Buffer): Promise<TenderExtra
         usedOcr: false,
         extractionMethod: "pdfjs-text",
         warning: "El documento parece escaneado y el OCR falló; el texto extraído puede estar incompleto.",
+        structuralBlocks: [],
       };
     }
     throw new PdfExtractionError(

@@ -3,51 +3,12 @@
 // resto de la app usa zod v3 normal ("zod") — zod 3.25+ empaqueta ambas
 // APIs, así que no hace falta un paquete adicional, solo importar del
 // subpath correcto en los archivos que construyen schemas para Claude.
+//
+// Los schemas de extracción de requisitos/criterios viven ahora en
+// pcap-extraction.ts y ppt-extraction.ts (ver ARCHITECTURE.md § RAG
+// estructural) — este archivo solo conserva el resumen ejecutivo, que es
+// exclusivo del PCAP (plazos, presupuesto, alcance) y se reutiliza tal cual.
 import { z } from "zod/v4";
-
-export const RequirementCategorySchema = z.enum([
-  "CERTIFICATION",
-  "FINANCIAL",
-  "TECHNICAL_EXPERIENCE",
-  "LEGAL_ADMINISTRATIVE",
-  "TEAM_QUALIFICATION",
-  "INSURANCE",
-  "OTHER",
-]);
-
-export const ExclusionRequirementSchema = z.object({
-  category: RequirementCategorySchema.describe(
-    "Tipo de requisito: CERTIFICATION (ISO, certificaciones), FINANCIAL (solvencia económica, facturación mínima), " +
-      "TECHNICAL_EXPERIENCE (solvencia técnica, experiencia previa, clasificación empresarial), " +
-      "LEGAL_ADMINISTRATIVE (documentación, forma jurídica, no estar en prohibiciones de contratar), " +
-      "TEAM_QUALIFICATION (titulaciones/experiencia del equipo), INSURANCE (seguros de responsabilidad civil), OTHER."
-  ),
-  description: z
-    .string()
-    .describe("Descripción clara y concisa del requisito, en español, parafraseada — no copies el texto legal completo."),
-  citationText: z
-    .string()
-    .describe("Cita textual LITERAL (copiada, no parafraseada) del pliego que sustenta este requisito, máx. ~300 caracteres."),
-  citationPage: z
-    .number()
-    .int()
-    .nullable()
-    .describe("Número de página del documento donde aparece esta cita, si se puede determinar con confianza; si no, null."),
-  citationClause: z
-    .string()
-    .nullable()
-    .describe("Número de cláusula/artículo/apartado si el pliego los numera (p.ej. 'Cláusula 6.2', 'Anexo III'); si no, null."),
-  isMandatory: z
-    .boolean()
-    .describe("true si es un requisito EXCLUYENTE/ELIMINATORIO (descalifica si no se cumple); false si es orientativo/deseable/valorable."),
-});
-
-export const ScoringCriterionSchema = z.object({
-  name: z.string().describe("Nombre del criterio de valoración/baremo, p.ej. 'Oferta económica', 'Mejoras técnicas'."),
-  description: z.string().nullable().describe("Detalle de cómo se puntúa este criterio, si el pliego lo especifica."),
-  weightPercent: z.number().min(0).max(100).describe("Peso del criterio en % sobre el total del baremo."),
-  maxPoints: z.number().nullable().describe("Puntuación máxima si el pliego usa una escala de puntos en vez de/además de %."),
-});
 
 export const ExecutiveSummarySchema = z.object({
   scopeSummary: z
@@ -70,24 +31,4 @@ export const ExecutiveSummarySchema = z.object({
   contractingBody: z.string().nullable().describe("Organismo público o empresa que licita/contrata, si se identifica en el documento."),
 });
 
-export const TenderAnalysisExtractionSchema = z.object({
-  executiveSummary: ExecutiveSummarySchema,
-  exclusionRequirements: z
-    .array(ExclusionRequirementSchema)
-    .describe("Todos los requisitos excluyentes/eliminatorios y de solvencia encontrados en el pliego. Array vacío si genuinamente no hay ninguno."),
-  scoringCriteria: z
-    .array(ScoringCriterionSchema)
-    .describe("Criterios de baremo/adjudicación con sus pesos, si el pliego los detalla. Array vacío si no hay baremo o es 'mejor precio' sin desglose."),
-  requirementsSectionUnclear: z
-    .boolean()
-    .describe(
-      "true SOLO si el documento no tiene una sección de requisitos de solvencia/admisión clara y los datos extraídos " +
-        "son una estimación de mejor esfuerzo a partir de menciones dispersas; false en el caso normal."
-    ),
-});
-
-export type RequirementCategory = z.infer<typeof RequirementCategorySchema>;
-export type ExclusionRequirementExtraction = z.infer<typeof ExclusionRequirementSchema>;
-export type ScoringCriterionExtraction = z.infer<typeof ScoringCriterionSchema>;
 export type ExecutiveSummaryExtraction = z.infer<typeof ExecutiveSummarySchema>;
-export type TenderAnalysisExtraction = z.infer<typeof TenderAnalysisExtractionSchema>;
