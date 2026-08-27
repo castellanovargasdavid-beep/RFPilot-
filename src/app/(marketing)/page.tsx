@@ -12,6 +12,7 @@ import {
   Table2,
   FolderCheck,
   Target,
+  Lock,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,13 @@ export default function LandingPage() {
               <Link href="/login">Ya tengo cuenta</Link>
             </Button>
           </div>
+          <p
+            className="animate-fade-in-up flex items-center gap-1.5 text-xs text-muted-foreground"
+            style={{ animationDelay: "280ms" }}
+          >
+            <Lock className="h-3 w-3" />
+            Datos 100% confidenciales bajo RGPD · Tus documentos no entrenan modelos
+          </p>
         </div>
       </section>
 
@@ -296,6 +304,9 @@ export default function LandingPage() {
                       {key === "PRO" && <Badge className="mb-2 w-fit">Más popular</Badge>}
                       <CardTitle>{plan.label}</CardTitle>
                       <p className="text-2xl font-semibold">{plan.priceLabel}</p>
+                      {key === "PRO" && (
+                        <p className="text-xs text-muted-foreground">(Créditos adicionales a precio reducido)</p>
+                      )}
                       <CardDescription>{plan.description}</CardDescription>
                     </CardHeader>
                     <CardContent>

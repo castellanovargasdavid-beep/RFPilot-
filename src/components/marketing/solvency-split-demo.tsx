@@ -98,6 +98,11 @@ const STATUS_STYLES = {
 };
 
 const CERTAINTY_LABELS: Record<NivelCerteza, string> = { ALTO: "Alta", DUDOSO: "Dudosa", AMBIGUO: "Ambigua" };
+const CERTAINTY_BADGE_STYLES: Record<NivelCerteza, string> = {
+  ALTO: "bg-success/15 text-success border-success/40",
+  DUDOSO: "bg-warning/15 text-warning border-warning/40",
+  AMBIGUO: "bg-destructive/15 text-destructive border-destructive/40",
+};
 
 /** Líneas de relleno para simular el resto del texto de la página, con anchos variables para que no se vea uniforme. */
 const FILLER_WIDTHS = [92, 88, 95, 64, 90, 85, 97, 78];
@@ -141,9 +146,19 @@ export function SolvencySplitDemo() {
                   </span>
                 </div>
                 <p className="mt-1 text-sm leading-snug">{req.descripcion}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {req.pliego} · pág. {req.pagina} · cláusula {req.clausula} · certeza {CERTAINTY_LABELS[req.nivelCerteza].toLowerCase()}
-                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {req.pliego} · pág. {req.pagina} · cláusula {req.clausula}
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold",
+                      CERTAINTY_BADGE_STYLES[req.nivelCerteza]
+                    )}
+                  >
+                    Certeza {CERTAINTY_LABELS[req.nivelCerteza].toLowerCase()}
+                  </span>
+                </div>
               </button>
             );
           })}
@@ -151,15 +166,17 @@ export function SolvencySplitDemo() {
       </div>
 
       {/* Derecha: página simulada del pliego, con el recuadro resaltado */}
-      <div className="flex flex-col p-4">
-        <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex flex-col bg-muted/30 p-4">
+        <div className="mb-3 flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-semibold text-foreground">
-            <FileSearch className="h-3.5 w-3.5" />
+            <FileSearch className="h-3.5 w-3.5 text-primary" />
             {active.pliego} · página {active.pagina} de {active.totalPaginas}
           </span>
-          <span>Cláusula {active.clausula}</span>
+          <span className="rounded-full border bg-card px-2 py-0.5 font-medium text-muted-foreground">
+            Cláusula {active.clausula}
+          </span>
         </div>
-        <div className="relative flex-1 rounded-lg border bg-background p-4 shadow-inner">
+        <div className="relative flex-1 rounded-lg border bg-background p-4 shadow-md">
           <div className="mb-3 h-2.5 w-2/3 rounded bg-muted-foreground/20" />
           <div className="space-y-2">
             {FILLER_WIDTHS.map((width, i) => {
@@ -168,7 +185,7 @@ export function SolvencySplitDemo() {
                 return (
                   <div
                     key={i}
-                    className="animate-fade-in-up rounded-md border-2 border-warning bg-warning/20 px-2 py-1.5 text-xs italic text-foreground/80"
+                    className="animate-fade-in-up rounded-md border-2 border-warning bg-warning/25 px-2 py-1.5 text-xs italic text-foreground shadow-sm"
                   >
                     &ldquo;{active.cita}&rdquo;
                   </div>
