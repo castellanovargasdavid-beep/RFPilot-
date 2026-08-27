@@ -48,10 +48,17 @@ servicio" más abajo.
 ### 4. Base de datos
 
 ```bash
-npx prisma db push       # aplica el schema (desarrollo)
-npx prisma migrate dev   # alternativa con migraciones versionadas
-npm run prisma:seed      # crea una organización de demo con datos de ejemplo completos
+npx prisma migrate deploy   # aplica el historial de migraciones versionadas (prisma/migrations/)
+npm run prisma:seed         # crea una organización de demo con datos de ejemplo completos
 ```
+
+Para cambios de schema durante el desarrollo, usa `npm run prisma:migrate`
+(`prisma migrate dev`) — genera una migración versionada nueva en
+`prisma/migrations/` y la commitea junto con el cambio de `schema.prisma`.
+`npx prisma db push` sigue funcionando para prototipar rápido sin dejar
+rastro en el historial, pero no lo uses para cambios que vayan a
+desplegarse: divergiría del historial de migraciones que `npm run build`
+aplica automáticamente (ver "Despliegue" más abajo).
 
 El seed crea el usuario `demo@rfpilot.dev` / `demo12345` con una
 licitación de ejemplo ya lista (pliego ficticio real de "mantenimiento de
@@ -180,8 +187,10 @@ npm run test:e2e       # end-to-end (Playwright) — requiere `npm run dev`
 
 1. **Base de datos**: crea un proyecto Postgres (Neon/Supabase), copia la
    cadena de conexión pooled a `DATABASE_URL` y la directa (no pooled) a
-   `DIRECT_DATABASE_URL`. Ejecuta `npx prisma migrate deploy` contra ella
-   antes del primer despliegue.
+   `DIRECT_DATABASE_URL`. Las migraciones (`prisma/migrations/`) se
+   aplican automáticamente en cada build (ver el paso 7) — no hace falta
+   ejecutarlas a mano salvo la primera vez, si tu base de datos ya tenía
+   tablas creadas con `db push` (ver aviso en el paso 7).
 2. **Claude**: crea una API key en console.anthropic.com y ponla en
    `ANTHROPIC_API_KEY`. El pipeline usa el modelo `claude-opus-5` con
    prompt caching — no requiere configuración adicional en la consola.
@@ -211,9 +220,25 @@ npm run test:e2e       # end-to-end (Playwright) — requiere `npm run dev`
    se pierde, esos campos quedan indescifrables.
 7. **Desplegar**: conecta el repo a Vercel (o el equivalente), configura
    las variables de entorno anteriores en el proyecto, y despliega. El
-   `build` corre `prisma generate` automáticamente (hook `postinstall`
-   estándar de Prisma); ejecuta las migraciones (`npx prisma migrate
-   deploy`) como paso separado antes de servir tráfico, no en el build.
+   script `build` corre `prisma migrate deploy && next build` — cada
+   deploy aplica automáticamente las migraciones pendientes contra
+   `DIRECT_DATABASE_URL` antes de compilar, así que un cambio de schema
+   nunca llega a producción sin su migración aplicada.
+
+   **Aviso de una sola vez si tu base de datos ya existía antes de este
+   cambio** (se gestionó con `prisma db push`, sin historial de
+   migraciones — es el caso de cualquier deploy anterior a la migración
+   `20260827084750_init`): la primera vez que despliegues con el nuevo
+   `build`, `migrate deploy` intentará crear tablas que ya existen y el
+   build fallará. Antes de ese deploy, ejecuta una sola vez, contra tu
+   base de datos de producción:
+   ```bash
+   DATABASE_URL="<tu DIRECT_DATABASE_URL de producción>" \
+     npx prisma migrate resolve --applied 20260827084750_init
+   ```
+   Esto marca la migración base como ya aplicada sin volver a ejecutar su
+   SQL (las tablas ya existen). A partir de ahí, cada migración nueva se
+   aplica normalmente en cada build.
 8. **Verifica**: crea una cuenta, sube un PDF de prueba, confirma que pasa
    por subiendo → extrayendo → analizando → listo, y que el webhook de
    Stripe concede créditos tras un checkout de test.

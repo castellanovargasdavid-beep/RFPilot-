@@ -695,6 +695,44 @@ recomendado por Prisma para este caso exacto: un script `postinstall` en
 `package.json` que corre `prisma generate` siempre, tenga o no caché
 `node_modules` reutilizada — `"postinstall": "prisma generate"`.
 
+## Migraciones versionadas en el build (`prisma migrate deploy`)
+
+Hasta este cambio, el schema se sincronizaba con `prisma db push`
+— aplica el estado actual de `schema.prisma` directamente contra la base
+de datos, pero no deja ningún historial versionado (`prisma/migrations/`
+no existía). Cómodo en desarrollo, pero significa que cada deploy a
+producción dependía de que alguien recordara ejecutar la sincronización a
+mano; nada garantizaba que el schema de producción estuviera al día.
+
+Cambio: `"build": "prisma migrate deploy && next build"` — cada deploy
+aplica automáticamente las migraciones pendientes contra
+`DIRECT_DATABASE_URL` antes de compilar. Para que `migrate deploy`
+tuviera algo que aplicar, se generó una migración base
+(`prisma/migrations/20260827084750_init/`) con
+`prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`
+— reproduce el schema completo actual partiendo de una base de datos
+vacía. Verificado localmente: reset completo de la base de datos de
+desarrollo, `prisma migrate deploy` contra ella desde cero, `prisma
+migrate status` confirma "up to date" sin drift, y el seed + los 74 tests
+de la suite pasan igual que contra una base de datos creada con
+`db push` — la migración reproduce el schema exactamente.
+
+**Aviso operativo (una sola vez):** cualquier base de datos de producción
+desplegada ANTES de este cambio se creó con `db push`, así que no tiene
+la tabla `_prisma_migrations` que `migrate deploy` usa para saber qué ya
+está aplicado. La primera vez que el nuevo `build` corra contra esa base
+de datos, intentará crear tablas que ya existen y fallará. Se documenta
+en el README ("Despliegue" → paso 7) el comando de baselining
+(`prisma migrate resolve --applied 20260827084750_init`) que hay que
+ejecutar una única vez, a mano, contra la base de datos de producción
+real antes de ese primer deploy — no es algo que se pueda automatizar
+desde el propio build sin arriesgarse a marcar como "aplicada" una
+migración que en realidad no lo está. A partir de ahí, el flujo normal
+es `npm run prisma:migrate` (`prisma migrate dev`) en local para cada
+cambio de schema, commitear la migración generada, y dejar que el build
+la aplique sola en el siguiente deploy — `db push` sigue disponible para
+prototipar, pero ya no es la vía para nada que vaya a producción.
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`
