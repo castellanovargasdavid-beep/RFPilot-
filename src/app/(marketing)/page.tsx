@@ -153,7 +153,7 @@ export default function LandingPage() {
             </span>
           </h1>
           <p className="animate-fade-in-up max-w-2xl text-balance text-lg text-muted-foreground" style={{ animationDelay: "160ms" }}>
-            RFPilot separa PCAP y PPT, verifica cada cita contra el texto real del pliego y te dice con precisión
+            Licitium separa PCAP y PPT, verifica cada cita contra el texto real del pliego y te dice con precisión
             legal si tu empresa cumple los requisitos de solvencia — sin alucinaciones, con página y cláusula exacta.
           </p>
           <div className="animate-fade-in-up flex gap-3" style={{ animationDelay: "240ms" }}>
@@ -209,7 +209,7 @@ export default function LandingPage() {
             </div>
             <Image
               src="/marketing/audit-ready-proof.png"
-              alt="Captura real de RFPilot: al hacer clic en un requisito de solvencia, se abre el pliego original con la cláusula exacta resaltada en amarillo."
+              alt="Captura real de Licitium: al hacer clic en un requisito de solvencia, se abre el pliego original con la cláusula exacta resaltada en amarillo."
               width={2752}
               height={1280}
               className="w-full"

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Registro e inicio de sesión", () => {
   test("un usuario nuevo puede registrarse y llega al dashboard vacío", async ({ page }) => {
-    const email = `e2e-${Date.now()}@rfpilot.test`;
+    const email = `e2e-${Date.now()}@licitium.test`;
 
     await page.goto("/register");
     await page.getByLabel("Tu nombre").fill("Usuario E2E");
@@ -18,7 +18,7 @@ test.describe("Registro e inicio de sesión", () => {
 
   test("un login con contraseña incorrecta muestra un error y no entra", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("demo@rfpilot.dev");
+    await page.getByLabel("Email").fill("demo@licitium.dev");
     await page.getByLabel("Contraseña").fill("contraseña-incorrecta");
     await page.getByRole("button", { name: "Entrar" }).click();
 

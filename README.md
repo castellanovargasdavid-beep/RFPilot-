@@ -1,4 +1,4 @@
-# RFPilot
+# Licitium
 
 SaaS que analiza pliegos de licitaciones públicas y RFPs corporativos,
 evalúa si tu empresa cumple los requisitos excluyentes (semáforo de
@@ -60,7 +60,7 @@ rastro en el historial, pero no lo uses para cambios que vayan a
 desplegarse: divergiría del historial de migraciones que `npm run build`
 aplica automáticamente (ver "Despliegue" más abajo).
 
-El seed crea el usuario `demo@rfpilot.dev` / `demo12345` con una
+El seed crea el usuario `demo@licitium.dev` / `demo12345` con una
 licitación de ejemplo ya lista (pliego ficticio real de "mantenimiento de
 sistemas informáticos", extracción de texto ejecutada de verdad, semáforo
 de elegibilidad calculado por el motor real contra un perfil de empresa
@@ -239,6 +239,35 @@ npm run test:e2e       # end-to-end (Playwright) — requiere `npm run dev`
    Esto marca la migración base como ya aplicada sin volver a ejecutar su
    SQL (las tablas ya existen). A partir de ahí, cada migración nueva se
    aplica normalmente en cada build.
-8. **Verifica**: crea una cuenta, sube un PDF de prueba, confirma que pasa
+8. **Dominio propio (`www.licitium.es`)**:
+   1. En el dashboard de Vercel, entra al proyecto → **Settings → Domains**
+      → escribe `www.licitium.es` → **Add**. Añade también `licitium.es`
+      (sin `www`) y usa la opción de Vercel para redirigirlo a `www` (o al
+      revés, si prefieres que el dominio canónico sea sin `www`).
+   2. Vercel te mostrará los registros DNS a crear en el panel de tu
+      proveedor de dominio (donde compraste `licitium.es`). Normalmente es
+      uno de estos dos casos, y Vercel te dice cuál te toca:
+      - **CNAME** para `www` → `cname.vercel-dns.com`.
+      - **A** para el dominio raíz (`@`) → `76.76.21.21`.
+      Si tu proveedor permite delegar los nameservers a Vercel en vez de
+      añadir registros sueltos, esa opción también vale y simplifica los
+      renovamientos automáticos de certificado.
+   3. Espera a que Vercel marque el dominio como **Valid Configuration**
+      (la propagación DNS puede tardar desde minutos hasta unas horas). El
+      certificado TLS se emite automáticamente, no hay que subir nada a mano.
+   4. Actualiza las variables de entorno de producción en Vercel:
+      `NEXTAUTH_URL=https://www.licitium.es` y, si tu código usa una
+      variable propia para construir enlaces absolutos (`APP_URL` o
+      similar), ponla también a `https://www.licitium.es`.
+   5. **Redespliega** después de cambiar esas variables — los cambios de
+      entorno no se aplican a builds ya desplegados, hace falta un nuevo
+      deploy para que `NEXTAUTH_URL` tenga efecto (login/OAuth y los
+      enlaces de los emails transaccionales dependen de ella).
+   6. Si usas login social (Google/Microsoft), añade
+      `https://www.licitium.es/api/auth/callback/google` (y el
+      equivalente de Microsoft) como redirect URI autorizada en la consola
+      de cada proveedor OAuth — los callbacks antiguos apuntando al
+      dominio `.vercel.app` dejarán de usarse pero no hace falta borrarlos.
+9. **Verifica**: crea una cuenta, sube un PDF de prueba, confirma que pasa
    por subiendo → extrayendo → analizando → listo, y que el webhook de
    Stripe concede créditos tras un checkout de test.

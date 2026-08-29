@@ -12,7 +12,7 @@ import { test, expect } from "@playwright/test";
  */
 async function loginAsDemoUser(page: import("@playwright/test").Page) {
   await page.goto("/login");
-  await page.getByLabel("Email").fill("demo@rfpilot.dev");
+  await page.getByLabel("Email").fill("demo@licitium.dev");
   await page.getByLabel("Contraseña").fill("demo12345");
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15_000 });

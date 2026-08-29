@@ -23,7 +23,7 @@ function fileNameFromUrl(url: URL): string {
  * PLACSP (o cualquier otro portal de contratación) en vez de tener que
  * descargarlo a mano y volver a subirlo. No es una integración con la API
  * de la PLACSP (eso implicaría poder buscar/navegar expedientes desde
- * dentro de RFPilot, un proyecto aparte) — aquí solo se acepta un enlace
+ * dentro de Licitium, un proyecto aparte) — aquí solo se acepta un enlace
  * directo al PDF y el servidor lo descarga por el usuario.
  *
  * Nunca sigue redirects automáticamente ni confía en la URL a ciegas: ver

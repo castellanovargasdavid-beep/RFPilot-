@@ -1,4 +1,4 @@
-# Arquitectura de RFPilot
+# Arquitectura de Licitium
 
 Este documento explica las decisiones de diseño del sistema y, a medida que se
 construyen las fases, el pipeline de IA con sus prompts y esquemas.
@@ -810,7 +810,7 @@ Input "Importar desde una URL" en el formulario de subida, alternativo al
 drag & drop — pensado para pegar el enlace directo a un PCAP/PPT ya
 publicado (p.ej. en la PLACSP) sin tener que descargarlo a mano y volver
 a subirlo. **No es una integración con la API de la PLACSP** (eso sería
-poder buscar/navegar expedientes desde dentro de RFPilot sin salir de la
+poder buscar/navegar expedientes desde dentro de Licitium sin salir de la
 app — un proyecto propio, más grande, pendiente de evaluar los términos
 de acceso a esa API): esto solo acepta un enlace directo a un PDF y lo
 descarga por el usuario.

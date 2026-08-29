@@ -7,7 +7,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="w-full max-w-sm space-y-6">
         <Link href="/" className="flex items-center justify-center gap-2 font-semibold tracking-tight">
           <Compass className="h-5 w-5 text-primary" />
-          RFPilot
+          Licitium
         </Link>
         {children}
       </div>

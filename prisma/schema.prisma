@@ -1,4 +1,4 @@
-// RFPilot — esquema de datos
+// Licitium — esquema de datos
 // Convenciones:
 //  - Todo modelo de negocio cuelga (directa o indirectamente) de Organization.
 //    El aislamiento multi-tenant se aplica en la capa de acceso a datos (src/server/data/*),

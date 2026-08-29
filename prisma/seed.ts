@@ -35,7 +35,7 @@ const prisma = new PrismaClient();
 const MOCK_PDF_PATH = path.join(__dirname, "fixtures/pliego-mantenimiento-informatico.pdf");
 
 async function main() {
-  const email = "demo@rfpilot.dev";
+  const email = "demo@licitium.dev";
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     console.log("Seed: el usuario demo ya existe, no se hace nada.");

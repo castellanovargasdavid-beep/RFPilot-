@@ -10,7 +10,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
         <div className="container flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
             <Compass className="h-5 w-5 text-primary" />
-            RFPilot
+            Licitium
           </Link>
           <nav className="flex items-center gap-2">
             <Button variant="ghost" asChild>
@@ -25,7 +25,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       <main className="flex-1">{children}</main>
       <footer className="border-t py-8 text-sm text-muted-foreground">
         <div className="container flex flex-col items-center justify-between gap-2 sm:flex-row">
-          <p>© {new Date().getFullYear()} RFPilot. Todos los derechos reservados.</p>
+          <p>© {new Date().getFullYear()} Licitium. Todos los derechos reservados.</p>
           <div className="flex items-center gap-4">
             <Link href="/legal/aviso-legal" className="hover:text-foreground hover:underline">
               Aviso legal

@@ -30,6 +30,6 @@ type Events = {
 };
 
 export const inngest = new Inngest({
-  id: "rfpilot",
+  id: "licitium",
   schemas: new EventSchemas().fromRecord<Events>(),
 });

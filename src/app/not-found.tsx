@@ -8,7 +8,7 @@ export default function NotFound() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
         <Compass className="h-5 w-5 text-primary" />
-        RFPilot
+        Licitium
       </Link>
       <FileQuestion className="h-10 w-10 text-muted-foreground" />
       <h1 className="text-xl font-semibold tracking-tight">Página no encontrada</h1>

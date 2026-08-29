@@ -52,7 +52,7 @@ export function LoginForm() {
     <Card>
       <CardHeader>
         <CardTitle>Iniciar sesión</CardTitle>
-        <CardDescription>Accede a tu cuenta de RFPilot.</CardDescription>
+        <CardDescription>Accede a tu cuenta de Licitium.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-4">

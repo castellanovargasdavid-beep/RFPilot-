@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Aviso legal — RFPilot",
-  description: "Naturaleza del servicio, limitación de responsabilidad y condiciones de uso de RFPilot.",
+  title: "Aviso legal — Licitium",
+  description: "Naturaleza del servicio, limitación de responsabilidad y condiciones de uso de Licitium.",
 };
 
 export default function AvisoLegalPage() {
@@ -15,8 +15,8 @@ export default function AvisoLegalPage() {
         <section>
           <h2>1. Naturaleza del servicio</h2>
           <p>
-            RFPilot es una herramienta de apoyo basada en inteligencia artificial para el análisis de pliegos de
-            licitaciones públicas (PCAP y PPT) y RFPs corporativos. RFPilot <strong>no presta asesoramiento jurídico,
+            Licitium es una herramienta de apoyo basada en inteligencia artificial para el análisis de pliegos de
+            licitaciones públicas (PCAP y PPT) y RFPs corporativos. Licitium <strong>no presta asesoramiento jurídico,
             fiscal ni de ningún otro tipo</strong>, y no sustituye el criterio profesional de un abogado, asesor de
             contratación pública o cualquier otro profesional cualificado. El servicio está diseñado como un
             &ldquo;copiloto auditable&rdquo;: cada resultado se acompaña de la cita textual, la página y la cláusula
@@ -37,7 +37,7 @@ export default function AvisoLegalPage() {
             Es responsabilidad exclusiva del usuario revisar y confirmar cada requisito, cita y resultado antes de
             tomar cualquier decisión con consecuencias reales — incluyendo, entre otras, presentarse o no a una
             licitación, elaborar una oferta, o descartar una licitación por supuesto incumplimiento de un requisito
-            excluyente. RFPilot proporciona los medios para esa verificación (citas literales, ubicación exacta en el
+            excluyente. Licitium proporciona los medios para esa verificación (citas literales, ubicación exacta en el
             documento, y un mecanismo de confirmación explícita por requisito); no verificar antes de actuar es una
             decisión del usuario, no una garantía del servicio.
           </p>
@@ -46,7 +46,7 @@ export default function AvisoLegalPage() {
         <section>
           <h2>3. Limitación de responsabilidad</h2>
           <p>
-            En la máxima medida permitida por la legislación aplicable, RFPilot y sus responsables no serán
+            En la máxima medida permitida por la legislación aplicable, Licitium y sus responsables no serán
             responsables de pérdidas, daños, costes o perjuicios de cualquier naturaleza derivados de decisiones
             adoptadas en base a los resultados del servicio, incluida la exclusión de un procedimiento de
             contratación, la pérdida de una licitación, o costes incurridos en la preparación de una oferta.
@@ -67,7 +67,7 @@ export default function AvisoLegalPage() {
           <h2>5. Propiedad intelectual de los documentos analizados</h2>
           <p>
             El contenido de los pliegos y RFPs que subes pertenece a sus respectivos titulares (órganos de
-            contratación o empresas convocantes). RFPilot los procesa exclusivamente por cuenta del usuario y para la
+            contratación o empresas convocantes). Licitium los procesa exclusivamente por cuenta del usuario y para la
             finalidad de generar el análisis solicitado.
           </p>
         </section>
