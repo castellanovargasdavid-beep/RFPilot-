@@ -14,6 +14,7 @@ function block(overrides: Partial<StructuralBlock>): StructuralBlock {
     bboxW: 0.5,
     bboxH: 0.05,
     order: 0,
+    esTabla: false,
     ...overrides,
   };
 }

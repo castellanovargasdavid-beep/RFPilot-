@@ -20,6 +20,8 @@ export interface StructuralBlock {
   bboxW: number;
   bboxH: number;
   order: number;
+  /** true si el bloque tiene pinta de fila de tabla (varias celdas separadas por huecos horizontales grandes) — ver checkCitation() en analyze-tender.ts, nunca se confía ciegamente en una cita que caiga aquí. */
+  esTabla: boolean;
 }
 
 export interface StructuralExtractionResult {
@@ -35,7 +37,14 @@ interface PositionedLine {
   bottom: number;
   left: number;
   right: number;
+  /** true si esta línea parece una fila de tabla: varias "celdas" separadas por huecos horizontales mucho más anchos que un espacio de palabra normal. */
+  looksLikeTableRow: boolean;
 }
+
+/** Un hueco horizontal mayor que esto (relativo a la altura de línea) se trata como separación de columnas, no como espacio entre palabras. */
+const TABLE_GAP_FACTOR = 1.8;
+/** Con al menos esta proporción de líneas "de tabla" en un párrafo, el bloque entero se marca esTabla. */
+const TABLE_ROW_RATIO_THRESHOLD = 0.5;
 
 const PARAGRAPH_GAP_FACTOR = 1.6;
 const CLAUSE_PATTERN =
@@ -112,6 +121,7 @@ export async function extractStructuralDocument(buffer: Buffer): Promise<Structu
       const bboxTop = Math.min(...paragraph.map((l) => l.top));
       const bboxRight = Math.max(...paragraph.map((l) => l.right));
       const bboxBottom = Math.max(...paragraph.map((l) => l.bottom));
+      const tableRowRatio = paragraph.filter((l) => l.looksLikeTableRow).length / paragraph.length;
 
       pageParagraphTexts.push(text);
       blocks.push({
@@ -124,6 +134,7 @@ export async function extractStructuralDocument(buffer: Buffer): Promise<Structu
         bboxW: clamp01((bboxRight - bboxLeft) / viewport.width),
         bboxH: clamp01((bboxBottom - bboxTop) / viewport.height),
         order: globalOrder++,
+        esTabla: paragraph.length >= 2 && tableRowRatio >= TABLE_ROW_RATIO_THRESHOLD,
       });
       paragraphIndex++;
       paragraph = [];
@@ -161,7 +172,23 @@ function finalizeLine(line: { items: TextItem[]; top: number; bottom: number }, 
   const text = sortedItems.map((i) => i.str).join(" ");
   const left = Math.min(...sortedItems.map((i) => i.transform[4]));
   const right = Math.max(...sortedItems.map((i) => i.transform[4] + (i.width || 0)));
-  return { text, top: line.top, bottom: line.bottom, left, right: Math.min(right, pageWidth) };
+  const lineHeight = line.bottom - line.top || 10;
+
+  let bigGaps = 0;
+  for (let i = 1; i < sortedItems.length; i++) {
+    const prevRight = sortedItems[i - 1].transform[4] + (sortedItems[i - 1].width || 0);
+    const gap = sortedItems[i].transform[4] - prevRight;
+    if (gap > lineHeight * TABLE_GAP_FACTOR) bigGaps++;
+  }
+
+  return {
+    text,
+    top: line.top,
+    bottom: line.bottom,
+    left,
+    right: Math.min(right, pageWidth),
+    looksLikeTableRow: bigGaps >= 2,
+  };
 }
 
 function clamp01(value: number): number {

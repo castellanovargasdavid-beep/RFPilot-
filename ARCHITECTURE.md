@@ -733,6 +733,111 @@ cambio de schema, commitear la migración generada, y dejar que el build
 la aplique sola en el siguiente deploy — `db push` sigue disponible para
 prototipar, pero ya no es la vía para nada que vaya a producción.
 
+## Copiloto auditable, robustez de extracción e importación por URL (post-lanzamiento)
+
+Cuatro piezas pedidas explícitamente tras una auditoría de riesgos del
+producto: (1) que el "copiloto auditable" no se quede solo en un lema —
+el usuario debe poder confirmar activamente cada cita, no solo verla; (2)
+un aviso legal real, no implícito; (3) que la extracción sea más robusta
+frente a tablas complejas y escaneos de mala calidad; (4) reducir la
+fricción de "descargar de la PLACSP y volver a subir a mano".
+
+### 1. Confirmación humana explícita de cada cita
+
+El guardrail determinista (`verify-citation.ts`) y el `nivel_certeza` que
+se autoasigna Claude son una ayuda, no una garantía — así que se añade un
+tercer nivel, el único que realmente cuenta para la responsabilidad legal:
+que el propio usuario marque activamente que ha revisado la cláusula
+citada. Nuevos campos en `ExclusionRequirement`: `confirmedByUserId` /
+`confirmedAt`. Endpoint `POST /api/tenders/[id]/requirements/[requirementId]/confirm`
+(verifica la cadena tender→analysis→requirement scoped a la organización
+del usuario, nunca confía en el ID a solas). En la UI, cada requisito
+tiene un botón "He verificado esta cita" / "Cita revisada por ti", y la
+cabecera de la sección muestra "X de Y confirmados por ti" como un
+contador de progreso real, no decorativo. Se limita a `ExclusionRequirement`
+(no a `ScoringCriterion`): el riesgo legal real es descartar o presentar
+una oferta por un requisito excluyente, no un criterio de baremo
+informativo.
+
+### 2. Aviso legal
+
+Página pública `/legal/aviso-legal` (accesible sin sesión, enlazada desde
+el footer de la landing) — naturaleza del servicio (no es asesoramiento
+jurídico), exactitud de los resultados y responsabilidad del usuario,
+limitación de responsabilidad, datos/RGPD, propiedad intelectual de los
+documentos analizados. Además, un banner permanente en la vista de
+detalle de la licitación, justo encima del semáforo, con el mismo mensaje
+resumido y un enlace directo al aviso completo — para que nadie llegue a
+los resultados sin verlo primero.
+
+**Importante**: este texto es un borrador razonable, no ha sido revisado
+por un abogado. Antes de operar comercialmente con clientes de pago hay
+que hacerlo revisar por un profesional — esto reduce el riesgo, no lo
+elimina.
+
+### 3. Robustez de extracción: tablas y escaneos de mala calidad
+
+- **Detección de tablas** (`structural-extract.ts`): el extractor
+  estructural no reconstruye tablas de verdad (no entiende filas/columnas
+  como una tabla real), así que en vez de fingir que sí, cada línea se
+  analiza en busca de huecos horizontales grandes entre "celdas" (más de
+  1.8× la altura de línea, con al menos 2 huecos así) — si la mayoría de
+  líneas de un bloque tienen esa forma, el bloque se marca `esTabla:
+  true`. El guardrail de citas (`checkCitation` en `analyze-tender.ts`)
+  nunca confía en una cita cuyo bloque coincidente sea una tabla, aunque
+  el fuzzy match sea perfecto: siempre queda `pendienteRevisionHumana`,
+  porque una coincidencia de texto sobre celdas concatenadas puede ser
+  casual. Es una heurística, no un parser de tablas real — validado solo
+  indirectamente (los tests de integración existentes confirman que el
+  campo se genera y persiste sin romper el resto del pipeline; no hay un
+  fixture de pliego con tablas reales para un test dedicado, riesgo
+  aceptado documentado aquí en vez de silenciado).
+- **Binarización con umbral de Otsu antes de OCR** (`ocr.ts`): cada
+  página se convierte a escala de grises y se calcula el umbral de gris
+  que mejor separa texto de fondo a partir del propio histograma de la
+  imagen (Otsu), en vez de un umbral fijo que funciona bien en unos
+  escaneos y mal en otros — mejora medible en escaneos con contraste bajo,
+  sombras de escáner o papel amarillento, usando solo manipulación de
+  píxeles con `@napi-rs/canvas` (sin dependencias ni servicios nuevos).
+  Sigue siendo Tesseract.js, no un OCR comercial (Textract/Document AI) —
+  ese salto de calidad requeriría una cuenta y credenciales de un proveedor
+  que no están disponibles en este entorno; queda como la vía natural de
+  escalar esto si el volumen de escaneos de mala calidad lo justifica.
+
+### 4. Importar pliego por URL
+
+Input "Importar desde una URL" en el formulario de subida, alternativo al
+drag & drop — pensado para pegar el enlace directo a un PCAP/PPT ya
+publicado (p.ej. en la PLACSP) sin tener que descargarlo a mano y volver
+a subirlo. **No es una integración con la API de la PLACSP** (eso sería
+poder buscar/navegar expedientes desde dentro de RFPilot sin salir de la
+app — un proyecto propio, más grande, pendiente de evaluar los términos
+de acceso a esa API): esto solo acepta un enlace directo a un PDF y lo
+descarga por el usuario.
+
+Al ser un fetch server-side a una URL que pone el usuario, es una
+superficie clásica de SSRF (podría usarse para pedirle al servidor que
+descargue metadata interna de la nube, un servicio en localhost, etc.).
+Guardia dedicada (`src/server/security/ssrf.ts`, con 15 tests unitarios):
+
+- Solo `http`/`https`; rechaza `localhost`/`0.0.0.0` explícitamente.
+- Resuelve el hostname por DNS y rechaza si CUALQUIERA de las IPs
+  resueltas cae en un rango privado/loopback/link-local/reservado
+  (IPv4: 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16, 100.64/10 CGNAT,
+  multicast/reservado; IPv6: `::1`, `fe80::/10`, `fc00::/7`, y direcciones
+  IPv4-mapeadas desenvueltas y re-comprobadas).
+- El fetch en sí nunca sigue redirects automáticamente (`redirect:
+  "manual"`) — una URL pública podría redirigir a una interna, así que
+  cualquier 3xx se trata como error en vez de seguirse ciegamente.
+- Límite de tamaño (`Content-Length` y tamaño real del buffer) y
+  verificación de magic bytes (`%PDF-`) además del content-type, con
+  timeout de 30s vía `AbortController`.
+
+Reutiliza el mismo backend de almacenamiento que el resto de la app
+(Vercel Blob si `BLOB_READ_WRITE_TOKEN` está configurado, disco local si
+no) — desde el punto en que el PDF ya está descargado, sigue exactamente
+el mismo camino que una subida manual.
+
 ## Riesgos aceptados
 
 - **Next 14 vs. postcss vendorizado**: `npm audit` señala CVEs de `postcss`

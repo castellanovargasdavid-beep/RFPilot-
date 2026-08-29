@@ -53,4 +53,34 @@ test.describe("Flujo completo con datos de demo", () => {
     await expect(page.getByRole("heading", { name: "Resumen ejecutivo de la propuesta" })).toBeVisible();
     await expect(page.getByText("Equipo técnico asignado").first()).toBeVisible();
   });
+
+  test("aviso legal de copiloto auditable visible y confirmación humana de una cita persiste", async ({ page }) => {
+    await loginAsDemoUser(page);
+    await page.getByText("Villaverde de la Sierra").click();
+    await expect(page).toHaveURL(/\/dashboard\/tenders\//);
+
+    // El aviso "no es un dictamen legal" siempre debe estar visible junto al semáforo.
+    await expect(page.getByText("Este análisis es una ayuda automatizada, no un dictamen legal.")).toBeVisible();
+
+    const counterText = page.getByText(/confirmados por ti/);
+    const initialCount = Number((await counterText.innerText()).match(/(\d+) de 8/)?.[1]);
+
+    const confirmButton = page.getByRole("button", { name: "He verificado esta cita" }).first();
+    await confirmButton.click();
+    await expect(page.getByRole("button", { name: "Cita revisada por ti" }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(counterText).toContainText(`${initialCount + 1} de 8`);
+
+    // Deja el estado como estaba (los tests de este archivo comparten los datos de demo).
+    await page.getByRole("button", { name: "Cita revisada por ti" }).first().click();
+    await expect(page.getByRole("button", { name: "He verificado esta cita" }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(counterText).toContainText(`${initialCount} de 8`);
+  });
+});
+
+test.describe("Aviso legal", () => {
+  test("la página de aviso legal es accesible sin sesión y explica el copiloto auditable", async ({ page }) => {
+    await page.goto("/legal/aviso-legal");
+    await expect(page.getByRole("heading", { name: "Aviso legal" })).toBeVisible();
+    await expect(page.getByText(/no presta asesoramiento jurídico/)).toBeVisible();
+  });
 });

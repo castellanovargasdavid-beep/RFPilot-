@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
-import { FileText, Loader2, Upload, X } from "lucide-react";
+import { FileText, Link2, Loader2, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,11 +22,21 @@ import { isAllowedTenderFile } from "@/lib/tender-constraints";
 
 type SourceType = "PUBLIC_TENDER" | "CORPORATE_RFP";
 
+interface RemoteImport {
+  fileUrl: string;
+  fileName: string;
+  fileSizeBytes: number;
+}
+
 export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" | "local" }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [remoteImport, setRemoteImport] = useState<RemoteImport | null>(null);
+  const [importUrlInput, setImportUrlInput] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [sourceType, setSourceType] = useState<SourceType>("PUBLIC_TENDER");
   const [contractingBody, setContractingBody] = useState("");
@@ -42,6 +52,7 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
       return;
     }
     setError(null);
+    setRemoteImport(null);
     setFile(candidate);
     if (!title) {
       setTitle(candidate.name.replace(/\.pdf$/i, ""));
@@ -56,49 +67,85 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleImportUrl() {
+    if (!importUrlInput.trim()) return;
+    setImportError(null);
+    setImporting(true);
+    try {
+      const res = await fetch("/api/tenders/import-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: importUrlInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message ?? "No se pudo importar el archivo de esa URL.");
+      }
+      setFile(null);
+      setError(null);
+      setRemoteImport({ fileUrl: data.url, fileName: data.fileName, fileSizeBytes: data.fileSizeBytes });
+      if (!title) {
+        setTitle(String(data.fileName).replace(/\.pdf$/i, ""));
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Error inesperado al importar el archivo.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) {
-      setError("Selecciona un archivo PDF.");
+    if (!file && !remoteImport) {
+      setError("Selecciona un archivo PDF o impórtalo desde una URL.");
       return;
     }
     setError(null);
 
     try {
-      setPhase("uploading");
-      setProgress(0);
-
       let fileUrl: string;
+      let fileName: string;
+      let fileSizeBytes: number;
 
-      if (storageMode === "vercel-blob") {
-        const blob = await upload(file.name, file, {
-          access: "public",
-          handleUploadUrl: "/api/blob/upload",
-          onUploadProgress: ({ percentage }) => setProgress(percentage),
-        });
-        fileUrl = blob.url;
+      if (remoteImport) {
+        setPhase("creating");
+        ({ fileUrl, fileName, fileSizeBytes } = remoteImport);
       } else {
-        const formData = new FormData();
-        formData.append("file", file);
-        const res = await fetch("/api/tenders/upload-local", { method: "POST", body: formData });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.message ?? "No se pudo subir el archivo.");
+        setPhase("uploading");
+        setProgress(0);
+        fileName = file!.name;
+        fileSizeBytes = file!.size;
+
+        if (storageMode === "vercel-blob") {
+          const blob = await upload(file!.name, file!, {
+            access: "public",
+            handleUploadUrl: "/api/blob/upload",
+            onUploadProgress: ({ percentage }) => setProgress(percentage),
+          });
+          fileUrl = blob.url;
+        } else {
+          const formData = new FormData();
+          formData.append("file", file!);
+          const res = await fetch("/api/tenders/upload-local", { method: "POST", body: formData });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message ?? "No se pudo subir el archivo.");
+          }
+          const data = await res.json();
+          fileUrl = data.url;
+          setProgress(100);
         }
-        const data = await res.json();
-        fileUrl = data.url;
-        setProgress(100);
+        setPhase("creating");
       }
 
-      setPhase("creating");
       const createRes = await fetch("/api/tenders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: title || file.name,
+          title: title || fileName,
           fileUrl,
-          fileName: file.name,
-          fileSizeBytes: file.size,
+          fileName,
+          fileSizeBytes,
           sourceType,
           contractingBody: contractingBody || undefined,
         }),
@@ -117,6 +164,7 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
   }
 
   const isBusy = phase !== "idle";
+  const hasSource = !!file || !!remoteImport;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -164,6 +212,29 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
               </Button>
             )}
           </div>
+        ) : remoteImport ? (
+          <div className="flex items-center gap-3">
+            <Link2 className="h-8 w-8 text-primary" />
+            <div className="text-left">
+              <p className="font-medium">{remoteImport.fileName}</p>
+              <p className="text-sm text-muted-foreground">
+                {(remoteImport.fileSizeBytes / 1024 / 1024).toFixed(1)} MB · importado desde URL
+              </p>
+            </div>
+            {!isBusy && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRemoteImport(null);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         ) : (
           <>
             <Upload className="h-8 w-8 text-muted-foreground" />
@@ -174,6 +245,35 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
           </>
         )}
       </div>
+
+      {!hasSource && (
+        <div className="flex items-center gap-2">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-xs text-muted-foreground">o</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+      )}
+
+      {!hasSource && (
+        <div className="space-y-2">
+          <Label htmlFor="importUrl">Importar desde una URL (p. ej. el enlace directo del PDF en la PLACSP)</Label>
+          <div className="flex gap-2">
+            <Input
+              id="importUrl"
+              type="url"
+              placeholder="https://contrataciondelestado.es/.../pliego.pdf"
+              value={importUrlInput}
+              onChange={(e) => setImportUrlInput(e.target.value)}
+              disabled={importing}
+            />
+            <Button type="button" variant="outline" onClick={handleImportUrl} disabled={importing || !importUrlInput.trim()}>
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              Importar
+            </Button>
+          </div>
+          {importError && <p className="text-sm text-destructive">{importError}</p>}
+        </div>
+      )}
 
       {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
@@ -216,7 +316,7 @@ export function TenderUploadForm({ storageMode }: { storageMode: "vercel-blob" |
         </div>
       )}
 
-      <Button type="submit" disabled={!file || isBusy}>
+      <Button type="submit" disabled={!hasSource || isBusy}>
         {isBusy && <Loader2 className="h-4 w-4 animate-spin" />}
         Analizar licitación
       </Button>

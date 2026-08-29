@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Calendar,
   CalendarClock,
+  CheckCircle2,
   Eye,
   FileSearch,
   FileText,
@@ -86,6 +87,33 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   const [generatingProposal, setGeneratingProposal] = useState(false);
   const [highlightTarget, setHighlightTarget] = useState<PdfHighlightTarget | null>(null);
   const [highlightNonce, setHighlightNonce] = useState(0);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  async function handleToggleConfirm(requirementId: string, confirmed: boolean) {
+    setConfirmingId(requirementId);
+    const res = await fetch(`/api/tenders/${tender.id}/requirements/${requirementId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setTender((t) => ({
+        ...t,
+        analyses: t.analyses.map((a) => ({
+          ...a,
+          requirements: a.requirements.map((r) =>
+            r.id === requirementId
+              ? { ...r, confirmedByUserId: updated.confirmedByUserId, confirmedAt: updated.confirmedAt }
+              : r
+          ),
+        })),
+      }));
+    } else {
+      toast.error("No se pudo actualizar la confirmación");
+    }
+    setConfirmingId(null);
+  }
 
   function locateInPdf(item: CitableItem) {
     if (item.citationPage == null || item.bboxX == null || item.bboxY == null || item.bboxW == null || item.bboxH == null) {
@@ -296,6 +324,20 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-6">
+              <Card className="border-warning/40 bg-warning/5">
+                <CardContent className="flex items-start gap-3 py-4 text-sm">
+                  <ShieldQuestion className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  <p>
+                    <strong>Este análisis es una ayuda automatizada, no un dictamen legal.</strong> Revisa y confirma
+                    cada requisito excluyente antes de descartar o presentar una oferta —{" "}
+                    <a href="/legal/aviso-legal" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                      ver aviso legal
+                    </a>
+                    .
+                  </p>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-4">
                   <div>
@@ -304,6 +346,13 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
                       {analysis.eligibilityStatus
                         ? "Semáforo cruzado contra tu perfil de empresa."
                         : "Aún no se ha cruzado contra tu perfil de empresa."}
+                      {analysis.requirements.length > 0 && (
+                        <>
+                          {" "}
+                          · {analysis.requirements.filter((r) => r.confirmedByUserId).length} de{" "}
+                          {analysis.requirements.length} confirmados por ti
+                        </>
+                      )}
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -329,6 +378,9 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
                       reasoning={req.eligibilityCheck?.reasoning ?? null}
                       item={req}
                       onLocate={() => locateInPdf(req)}
+                      confirmed={!!req.confirmedByUserId}
+                      confirming={confirmingId === req.id}
+                      onToggleConfirm={() => handleToggleConfirm(req.id, !req.confirmedByUserId)}
                     />
                   ))}
                 </CardContent>
@@ -429,6 +481,9 @@ function RequirementCard({
   reasoning,
   item,
   onLocate,
+  confirmed,
+  confirming,
+  onToggleConfirm,
 }: {
   eligibilityBadge: React.ReactNode;
   categoryLabel: string;
@@ -438,9 +493,12 @@ function RequirementCard({
   reasoning: string | null;
   item: CitableItem;
   onLocate: () => void;
+  confirmed: boolean;
+  confirming: boolean;
+  onToggleConfirm: () => void;
 }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className={cn("rounded-lg border p-4", confirmed && "border-success/40 bg-success/[0.03]")}>
       <div className="flex flex-wrap items-center gap-2">
         {eligibilityBadge}
         <Badge variant="outline">{legalTypeLabel ?? categoryLabel}</Badge>
@@ -449,6 +507,21 @@ function RequirementCard({
       <p className="mt-2 text-sm font-medium">{description}</p>
       <CitationFooter item={item} onLocate={onLocate} />
       {reasoning && <p className="mt-2 text-sm text-muted-foreground">{reasoning}</p>}
+      <Button
+        type="button"
+        variant={confirmed ? "secondary" : "outline"}
+        size="sm"
+        className="mt-3"
+        onClick={onToggleConfirm}
+        disabled={confirming}
+      >
+        {confirming ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <CheckCircle2 className={cn("h-3.5 w-3.5", confirmed && "text-success")} />
+        )}
+        {confirmed ? "Cita revisada por ti" : "He verificado esta cita"}
+      </Button>
     </div>
   );
 }

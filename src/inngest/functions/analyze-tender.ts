@@ -31,7 +31,13 @@ function checkCitation(
     return { pendienteRevisionHumana: true, bbox: null };
   }
   const result = verifyCitation(citaLiteral, referencia.pagina, blocks);
-  return { pendienteRevisionHumana: !result.verified, bbox: result.matchedBlock };
+  // El extractor estructural no reconstruye tablas de verdad — una
+  // coincidencia de texto sobre un bloque con pinta de tabla puede ser
+  // casual (celdas concatenadas que casualmente forman la frase). Nunca se
+  // confía en esa verificación por buena que parezca: se marca pendiente
+  // de revisión igualmente (ver ARCHITECTURE.md § Robustez de extracción).
+  const pendienteRevisionHumana = !result.verified || result.matchedBlock?.esTabla === true;
+  return { pendienteRevisionHumana, bbox: result.matchedBlock };
 }
 
 function clauseOrNull(clausula: string): string | null {

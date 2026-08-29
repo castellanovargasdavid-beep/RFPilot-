@@ -68,6 +68,7 @@ export const extractTenderFunction = inngest.createFunction(
                   bboxW: block.bboxW,
                   bboxH: block.bboxH,
                   order: block.order,
+                  esTabla: block.esTabla,
                 })),
               }),
             ]

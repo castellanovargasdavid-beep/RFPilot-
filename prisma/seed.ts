@@ -168,6 +168,7 @@ async function main() {
         bboxW: block.bboxW,
         bboxH: block.bboxH,
         order: block.order,
+        esTabla: block.esTabla,
       })),
     });
   }

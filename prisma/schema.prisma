@@ -32,9 +32,10 @@ model User {
   sessions    Session[]
   memberships Membership[]
 
-  uploadedTenders Tender[]     @relation("TenderUploadedBy")
-  aiUsageLogs     AiUsageLog[]
-  auditLogs       AuditLog[]
+  uploadedTenders       Tender[]               @relation("TenderUploadedBy")
+  confirmedRequirements ExclusionRequirement[]
+  aiUsageLogs           AiUsageLog[]
+  auditLogs             AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -336,6 +337,13 @@ model TenderDocumentBlock {
 
   order Int
 
+  /// true si el bloque tiene forma de tabla (muchas líneas cortas alineadas
+  /// en columnas) — el extractor estructural no reconstruye tablas de
+  /// verdad, así que cualquier cita que caiga sobre un bloque así se marca
+  /// pendienteRevisionHumana automáticamente en vez de confiar en el fuzzy
+  /// match (ver ARCHITECTURE.md § Robustez de extracción).
+  esTabla Boolean @default(false)
+
   @@index([tenderId, pagina])
   @@index([tenderId, order])
 }
@@ -447,6 +455,15 @@ model ExclusionRequirement {
   bboxY                   Float?
   bboxW                   Float?
   bboxH                   Float?
+
+  /// Confirmación humana explícita de la cita — el "copiloto auditable":
+  /// el sistema nunca da un requisito por verificado en firme sin más que
+  /// haber pasado el guardrail determinista, el usuario tiene que
+  /// confirmarlo activamente él mismo (ver ARCHITECTURE.md § Copiloto
+  /// auditable). Null = todavía no confirmado.
+  confirmedByUserId String?
+  confirmedByUser   User?     @relation(fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+  confirmedAt       DateTime?
 
   eligibilityCheck EligibilityCheck?
 
