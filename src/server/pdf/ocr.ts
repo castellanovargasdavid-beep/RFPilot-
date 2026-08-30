@@ -20,7 +20,7 @@ import spaTrainedData from "@tesseract.js-data/spa";
  * conocido; migrar a un proveedor de OCR gestionado es la vía natural de
  * escalar esto si se vuelve un cuello de botella real.
  */
-const MAX_OCR_PAGES = 40;
+export const MAX_OCR_PAGES = 40;
 const RENDER_SCALE = 2;
 
 /**
@@ -111,11 +111,7 @@ class NodeCanvasFactory {
   }
 }
 
-export async function ocrPdfBuffer(
-  buffer: Buffer,
-  onProgress?: (pageNum: number, totalPages: number) => void
-): Promise<OcrResult> {
-  const canvasFactory = new NodeCanvasFactory();
+async function loadPdfForOcr(buffer: Buffer, canvasFactory: NodeCanvasFactory) {
   const data = new Uint8Array(buffer);
   // `canvasFactory` renderiza en Node vía @napi-rs/canvas; es una opción real
   // en runtime que los tipos de pdfjs-dist no reflejan para esta versión.
@@ -124,7 +120,86 @@ export async function ocrPdfBuffer(
     isEvalSupported: false,
     canvasFactory,
   } as Parameters<typeof getDocument>[0] & { canvasFactory: NodeCanvasFactory });
+  return loadingTask.promise;
+}
+
+async function renderAndRecognizePage(
+  pdf: Awaited<ReturnType<typeof loadPdfForOcr>>,
+  canvasFactory: NodeCanvasFactory,
+  pageNum: number,
+  worker: Awaited<ReturnType<typeof createWorker>>
+): Promise<string> {
+  const page = await pdf.getPage(pageNum);
+  const viewport = page.getViewport({ scale: RENDER_SCALE });
+  const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+
+  const renderParams = {
+    canvasContext: canvasAndContext.context as unknown as CanvasRenderingContext2D,
+    viewport,
+    canvasFactory,
+  };
+  await page.render(renderParams as unknown as Parameters<typeof page.render>[0]).promise;
+  preprocessForOcr(canvasAndContext.canvas, canvasAndContext.context);
+
+  const imageBuffer = canvasAndContext.canvas.toBuffer("image/png");
+  const { data: ocrData } = await worker.recognize(imageBuffer);
+
+  canvasFactory.destroy(canvasAndContext);
+  page.cleanup();
+
+  return `--- Página ${pageNum} ---\n${ocrData.text.trim()}`;
+}
+
+/**
+ * Nº de páginas del PDF, sin renderizar ni hacer OCR — para decidir cuántas
+ * páginas tocan (Math.min(totalPages, MAX_OCR_PAGES)) antes de arrancar el
+ * troceado por página en Inngest (ver ocrSinglePage y
+ * src/inngest/functions/extract-tender.ts).
+ */
+export async function getPdfPageCount(buffer: Buffer): Promise<number> {
+  const data = new Uint8Array(buffer);
+  const loadingTask = getDocument({ data, isEvalSupported: false });
   const pdf = await loadingTask.promise;
+  const numPages = pdf.numPages;
+  await pdf.destroy();
+  return numPages;
+}
+
+/**
+ * OCR de una única página. Existe para poder trocear un pliego escaneado
+ * largo en un step de Inngest por página: cada llamada es una invocación
+ * serverless independiente con su propio presupuesto de tiempo (60s en
+ * plan Hobby de Vercel — ver maxDuration en src/app/api/inngest/route.ts),
+ * así que ninguna página individual puede agotarlo aunque el documento
+ * entero (hasta MAX_OCR_PAGES páginas) sí lo haría en un único paso.
+ * Recarga el PDF y crea un worker de Tesseract nuevos en cada llamada
+ * (no hay estado compartido entre invocaciones serverless distintas) — el
+ * coste de esa recarga es aceptable frente al beneficio de no perder todo
+ * el progreso si Vercel mata la función a mitad de un documento largo.
+ */
+export async function ocrSinglePage(buffer: Buffer, pageNum: number): Promise<string> {
+  const canvasFactory = new NodeCanvasFactory();
+  const pdf = await loadPdfForOcr(buffer, canvasFactory);
+  const worker = await createWorker("spa", 1, {
+    langPath: spaTrainedData.langPath,
+    gzip: true,
+    cachePath: tmpdir(),
+  });
+
+  try {
+    return await renderAndRecognizePage(pdf, canvasFactory, pageNum, worker);
+  } finally {
+    await worker.terminate();
+    await pdf.destroy();
+  }
+}
+
+export async function ocrPdfBuffer(
+  buffer: Buffer,
+  onProgress?: (pageNum: number, totalPages: number) => void
+): Promise<OcrResult> {
+  const canvasFactory = new NodeCanvasFactory();
+  const pdf = await loadPdfForOcr(buffer, canvasFactory);
 
   const totalPages = pdf.numPages;
   const pagesToProcess = Math.min(totalPages, MAX_OCR_PAGES);
@@ -138,24 +213,7 @@ export async function ocrPdfBuffer(
   const pageTexts: string[] = [];
   try {
     for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: RENDER_SCALE });
-      const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-
-      const renderParams = {
-        canvasContext: canvasAndContext.context as unknown as CanvasRenderingContext2D,
-        viewport,
-        canvasFactory,
-      };
-      await page.render(renderParams as unknown as Parameters<typeof page.render>[0]).promise;
-      preprocessForOcr(canvasAndContext.canvas, canvasAndContext.context);
-
-      const imageBuffer = canvasAndContext.canvas.toBuffer("image/png");
-      const { data: ocrData } = await worker.recognize(imageBuffer);
-      pageTexts.push(`--- Página ${pageNum} ---\n${ocrData.text.trim()}`);
-
-      canvasFactory.destroy(canvasAndContext);
-      page.cleanup();
+      pageTexts.push(await renderAndRecognizePage(pdf, canvasFactory, pageNum, worker));
       onProgress?.(pageNum, pagesToProcess);
     }
   } finally {

@@ -7,16 +7,14 @@ import { generateProposalOutlineFunction } from "@/inngest/functions/generate-pr
 import { generateProposalSectionFunction } from "@/inngest/functions/generate-proposal-section";
 
 /**
- * Por defecto Vercel corta esta función a los pocos segundos (10s en plan
- * Hobby). Un pliego grande escaneado puede tardar varios minutos en OCR
- * (hasta MAX_OCR_PAGES páginas, ver src/server/pdf/ocr.ts) — sin este
- * límite ampliado, la función se mata a mitad de proceso y la licitación
- * se queda "atascada" indefinidamente en cada reintento.
- * En plan Hobby, Vercel ignora este valor y sigue aplicando su propio tope;
- * en Pro/Enterprise amplía el límite real hasta el máximo permitido por tu
- * plan (habitualmente 300s en Pro).
+ * Por defecto Vercel corta esta función a los pocos segundos. 60s es el
+ * máximo permitido en plan Hobby (Vercel rechaza el build si se pide más);
+ * en Pro/Enterprise se puede subir hasta 300s. Por eso ningún paso
+ * individual de esta función puede tardar más de ~60s — ver el OCR
+ * troceado por página en src/inngest/functions/extract-tender.ts, que
+ * existe precisamente para encajar en este límite.
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
