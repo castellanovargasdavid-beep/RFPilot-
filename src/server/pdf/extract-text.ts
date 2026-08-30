@@ -17,26 +17,48 @@ export interface PdfTextExtractionResult {
   looksScanned: boolean;
 }
 
-const SCANNED_HEURISTIC_CHARS_PER_PAGE = 40;
+export const SCANNED_HEURISTIC_CHARS_PER_PAGE = 40;
 
-export async function extractPdfText(buffer: Buffer): Promise<PdfTextExtractionResult> {
+export interface PdfTextRangeResult {
+  text: string;
+  charCount: number;
+  /** Nº total de páginas del documento (no solo del rango pedido). */
+  pageCount: number;
+}
+
+/**
+ * Extrae el texto nativo solo de un rango de páginas — existe para poder
+ * trocear un pliego largo en varios steps de Inngest (igual que
+ * ocrSinglePage trocea el OCR, ver src/server/pdf/ocr.ts): un PDF grande
+ * puede tardar más de los 60s de una función serverless en plan Hobby de
+ * Vercel incluso solo para leer su capa de texto nativa, antes de saber
+ * siquiera si hace falta OCR — ver el orquestador en
+ * src/inngest/functions/extract-tender.ts.
+ */
+export async function extractPdfTextRange(buffer: Buffer, startPage: number, endPage: number): Promise<PdfTextRangeResult> {
   const data = new Uint8Array(buffer);
   const loadingTask = getDocument({ data, useSystemFonts: true, isEvalSupported: false });
   const pdf = await loadingTask.promise;
+  const lastPage = Math.min(endPage, pdf.numPages);
 
   const pageTexts: string[] = [];
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+  for (let pageNum = startPage; pageNum <= lastPage; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
     const pageText = content.items.map((item) => ("str" in item ? item.str : "")).join(" ");
     pageTexts.push(pageText.trim());
     page.cleanup();
   }
+  const pageCount = pdf.numPages || 1;
   await pdf.destroy();
 
   const text = pageTexts.join("\n\n").trim();
-  const pageCount = pdf.numPages || 1;
-  const charsPerPage = text.length / pageCount;
+  return { text, charCount: text.length, pageCount };
+}
+
+export async function extractPdfText(buffer: Buffer): Promise<PdfTextExtractionResult> {
+  const { text, charCount, pageCount } = await extractPdfTextRange(buffer, 1, Number.MAX_SAFE_INTEGER);
+  const charsPerPage = charCount / pageCount;
 
   return {
     text,

@@ -30,6 +30,13 @@ export interface StructuralExtractionResult {
   pageMarkedText: string;
   blocks: StructuralBlock[];
   pageCount: number;
+  /**
+   * Última cláusula vigente al terminar el rango procesado — solo relevante
+   * cuando se llama por lotes de páginas (ver extractStructuralDocumentRange
+   * más abajo); pásala como `initialClause` del siguiente lote para que una
+   * cláusula que sigue vigente entre páginas no se "olvide" en el corte.
+   */
+  endClause: string | null;
 }
 
 interface PositionedLine {
@@ -57,16 +64,45 @@ function extractClauseLabel(lineText: string): string | null {
   return match[0].replace(/\.?\s*$/, "").trim();
 }
 
-export async function extractStructuralDocument(buffer: Buffer): Promise<StructuralExtractionResult> {
+export interface StructuralExtractOptions {
+  /** Primera página a procesar (1-indexed), inclusive. Por defecto, la 1. */
+  startPage?: number;
+  /** Última página a procesar, inclusive. Por defecto, la última del documento. */
+  endPage?: number;
+  /**
+   * Cláusula vigente al empezar este lote (el `endClause` del lote
+   * anterior) — sin esto, una cláusula abierta en la página 19 y que sigue
+   * vigente en la 20 "se perdería" al cortar por lotes.
+   */
+  initialClause?: string | null;
+  /** Desplaza `order` para que sea monótono creciente a través de lotes. */
+  orderOffset?: number;
+}
+
+/**
+ * Indexa el documento estructural completo, o solo un rango de páginas
+ * (ver StructuralExtractOptions) — el rango existe para poder trocear un
+ * pliego nativo largo en varios steps de Inngest, igual que ocrSinglePage
+ * trocea el OCR (ver src/inngest/functions/extract-tender.ts): parsear
+ * cientos de páginas de una vez puede superar los 60s de una función
+ * serverless en plan Hobby de Vercel.
+ */
+export async function extractStructuralDocument(
+  buffer: Buffer,
+  options: StructuralExtractOptions = {}
+): Promise<StructuralExtractionResult> {
+  const { startPage = 1, initialClause = null, orderOffset = 0 } = options;
   const data = new Uint8Array(buffer);
   const loadingTask = getDocument({ data, useSystemFonts: true, isEvalSupported: false });
   const pdf = await loadingTask.promise;
+  const endPage = Math.min(options.endPage ?? pdf.numPages, pdf.numPages);
 
   const pageMarkedParts: string[] = [];
   const blocks: StructuralBlock[] = [];
-  let globalOrder = 0;
+  let globalOrder = orderOffset;
+  let lastClause = initialClause;
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+  for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
@@ -101,7 +137,7 @@ export async function extractStructuralDocument(buffer: Buffer): Promise<Structu
 
     // Agrupa líneas en párrafos: salto de cláusula o hueco vertical grande.
     const pageParagraphTexts: string[] = [];
-    let currentClause: string | null = null;
+    let currentClause: string | null = lastClause;
     let paragraph: PositionedLine[] = [];
     let paragraphIndex = 0;
     const avgLineHeight =
@@ -153,6 +189,7 @@ export async function extractStructuralDocument(buffer: Buffer): Promise<Structu
       paragraph.push(line);
     }
     flushParagraph();
+    lastClause = currentClause;
 
     pageMarkedParts.push(`[PÁGINA ${pageNum}]\n${pageParagraphTexts.join("\n\n")}`);
     page.cleanup();
@@ -165,6 +202,7 @@ export async function extractStructuralDocument(buffer: Buffer): Promise<Structu
     pageMarkedText: pageMarkedParts.join("\n\n").trim(),
     blocks,
     pageCount,
+    endClause: lastClause,
   };
 }
 
