@@ -22,6 +22,16 @@ import spaTrainedData from "@tesseract.js-data/spa";
  */
 export const MAX_OCR_PAGES = 40;
 const RENDER_SCALE = 2;
+/**
+ * Un escaneo de página muy grande o muy alta resolución (ej. A3 a 600dpi)
+ * puede generar, a RENDER_SCALE fijo, una imagen enorme — Tesseract.js
+ * sobre esa imagen puede tardar bastante más de los 60s de una sola
+ * página, incluso con el troceado por página (ver ocrSinglePage). Este
+ * tope evita eso: nunca se renderiza a más de este tamaño en el lado
+ * largo, escalando hacia abajo solo cuando hace falta (páginas normales,
+ * a RENDER_SCALE=2, quedan muy por debajo y no se ven afectadas).
+ */
+const MAX_RENDER_DIMENSION_PX = 2000;
 
 /**
  * Binarización con umbral de Otsu antes de pasar la página por Tesseract —
@@ -130,7 +140,10 @@ async function renderAndRecognizePage(
   worker: Awaited<ReturnType<typeof createWorker>>
 ): Promise<string> {
   const page = await pdf.getPage(pageNum);
-  const viewport = page.getViewport({ scale: RENDER_SCALE });
+  const baseViewport = page.getViewport({ scale: 1 });
+  const longestSide = Math.max(baseViewport.width, baseViewport.height);
+  const effectiveScale = Math.min(RENDER_SCALE, MAX_RENDER_DIMENSION_PX / longestSide);
+  const viewport = page.getViewport({ scale: effectiveScale });
   const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
 
   const renderParams = {
