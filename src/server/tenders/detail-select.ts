@@ -22,6 +22,9 @@ export const tenderDetailSelect = {
   currency: true,
   createdAt: true,
   updatedAt: true,
+  extractionStartedAt: true,
+  ocrPagesProcessed: true,
+  ocrPagesTotal: true,
   analyses: {
     orderBy: { version: "desc" },
     take: 1,

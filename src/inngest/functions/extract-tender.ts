@@ -40,7 +40,13 @@ export const extractTenderFunction = inngest.createFunction(
     await step.run("mark-extracting", async () => {
       await prisma.tender.update({
         where: { id: tenderId },
-        data: { status: "EXTRACTING", statusMessage: null },
+        data: {
+          status: "EXTRACTING",
+          statusMessage: null,
+          extractionStartedAt: new Date(),
+          ocrPagesProcessed: null,
+          ocrPagesTotal: null,
+        },
       });
     });
 
@@ -84,11 +90,23 @@ export const extractTenderFunction = inngest.createFunction(
       const pagesToProcess = Math.min(nativeResult.pageCount, MAX_OCR_PAGES);
       const pageTexts: string[] = [];
 
+      await step.run("init-ocr-progress", async () => {
+        await prisma.tender.update({
+          where: { id: tenderId },
+          data: { ocrPagesProcessed: 0, ocrPagesTotal: pagesToProcess },
+        });
+      });
+
       try {
         for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
           const pageText = await step.run(`ocr-page-${pageNum}`, async () => {
             const buffer = await loadTenderBuffer(tenderId);
-            return ocrSinglePage(buffer, pageNum);
+            const text = await ocrSinglePage(buffer, pageNum);
+            await prisma.tender.update({
+              where: { id: tenderId },
+              data: { ocrPagesProcessed: pageNum },
+            });
+            return text;
           });
           pageTexts.push(pageText);
         }

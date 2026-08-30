@@ -279,6 +279,14 @@ model Tender {
   status        TenderStatus @default(UPLOADING)
   statusMessage String?
 
+  // Progreso del OCR en curso — null fuera de un OCR activo (extracción por
+  // texto nativo, o aún no se sabe cuántas páginas tocan). Se actualiza por
+  // página desde el step troceado de Inngest (ver extract-tender.ts) para
+  // que el cliente pueda mostrar una barra de progreso real con velocidad.
+  extractionStartedAt DateTime?
+  ocrPagesProcessed   Int?
+  ocrPagesTotal       Int?
+
   extractedText      String? @db.Text
   extractedTextIsOcr Boolean @default(false)
   extractionMethod   String? // "pdf-parse" | "tesseract-ocr"

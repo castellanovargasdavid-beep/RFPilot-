@@ -28,6 +28,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { TenderStatusBadge, EligibilityBadge } from "@/components/tenders/status-badge";
 import { PdfSplitViewer, type PdfHighlightTarget } from "@/components/tenders/pdf-split-viewer";
@@ -202,6 +203,22 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   const updatedAtMs = (typeof tender.updatedAt === "string" ? new Date(tender.updatedAt) : tender.updatedAt).getTime();
   const stuckExtracting = tender.status === "EXTRACTING" && Date.now() - updatedAtMs > STUCK_EXTRACTING_THRESHOLD_MS;
 
+  const ocrProgress =
+    tender.status === "EXTRACTING" && tender.ocrPagesTotal && tender.ocrPagesTotal > 0
+      ? (() => {
+          const processed = tender.ocrPagesProcessed ?? 0;
+          const total = tender.ocrPagesTotal!;
+          const percent = Math.min(100, Math.round((processed / total) * 100));
+          const startedAtMs = tender.extractionStartedAt
+            ? (typeof tender.extractionStartedAt === "string" ? new Date(tender.extractionStartedAt) : tender.extractionStartedAt).getTime()
+            : null;
+          const elapsedMinutes = startedAtMs ? (Date.now() - startedAtMs) / 60000 : 0;
+          const pagesPerMinute = processed > 0 && elapsedMinutes > 0 ? processed / elapsedMinutes : null;
+          const etaMinutes = pagesPerMinute ? Math.ceil((total - processed) / pagesPerMinute) : null;
+          return { processed, total, percent, pagesPerMinute, etaMinutes };
+        })()
+      : null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -228,6 +245,18 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
                 ? "Puede tardar uno o dos minutos en pliegos largos. Puedes salir de esta pantalla."
                 : "Los pliegos escaneados pueden tardar varios minutos porque pasan por reconocimiento óptico (OCR)."}
             </p>
+            {ocrProgress && (
+              <div className="w-full max-w-xs space-y-1.5 pt-2">
+                <Progress value={ocrProgress.percent} />
+                <p className="text-xs text-muted-foreground">
+                  Página {ocrProgress.processed} de {ocrProgress.total} ({ocrProgress.percent}%)
+                  {ocrProgress.pagesPerMinute && ` · ~${ocrProgress.pagesPerMinute.toFixed(1)} páginas/min`}
+                  {ocrProgress.etaMinutes != null &&
+                    ocrProgress.etaMinutes > 0 &&
+                    ` · quedan ~${ocrProgress.etaMinutes} min`}
+                </p>
+              </div>
+            )}
             {stuckExtracting && (
               <div className="flex flex-col items-center gap-2 pt-2">
                 <p className="text-sm text-muted-foreground">Esto está tardando más de lo normal.</p>
