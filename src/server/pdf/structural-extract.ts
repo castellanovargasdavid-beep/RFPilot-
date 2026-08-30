@@ -1,4 +1,5 @@
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import "./setup-worker";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 
 /**

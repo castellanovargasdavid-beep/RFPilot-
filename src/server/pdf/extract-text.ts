@@ -1,4 +1,5 @@
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import "./setup-worker";
 
 /**
  * Extracción de texto "nativo" del PDF (capa de texto ya presente en el

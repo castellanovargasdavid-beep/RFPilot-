@@ -1,6 +1,7 @@
 import { tmpdir } from "os";
 import { createCanvas, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import "./setup-worker";
 import { createWorker } from "tesseract.js";
 import spaTrainedData from "@tesseract.js-data/spa";
 
