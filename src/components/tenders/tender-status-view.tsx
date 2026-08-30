@@ -150,7 +150,7 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   async function handleRetryExtraction() {
     setRetrying(true);
     await fetch(`/api/tenders/${tender.id}/retry-extraction`, { method: "POST" });
-    setTender((t) => ({ ...t, status: "EXTRACTING", statusMessage: null }));
+    setTender((t) => ({ ...t, status: "EXTRACTING", statusMessage: null, updatedAt: new Date() }));
     setRetrying(false);
   }
 
