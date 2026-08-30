@@ -21,6 +21,7 @@ export const tenderDetailSelect = {
   maxBudget: true,
   currency: true,
   createdAt: true,
+  updatedAt: true,
   analyses: {
     orderBy: { version: "desc" },
     take: 1,

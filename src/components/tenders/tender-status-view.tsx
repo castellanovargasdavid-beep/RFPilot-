@@ -36,6 +36,9 @@ import type { TenderDetail } from "@/server/tenders/detail-select";
 
 const POLLING_STATUSES = ["UPLOADING", "EXTRACTING", "ANALYZING"];
 const POLL_INTERVAL_MS = 2500;
+/** Igual que STUCK_EXTRACTING_THRESHOLD_MS en la API de retry-extraction — a
+ * partir de aquí ofrecemos reintentar en vez de esperar indefinidamente. */
+const STUCK_EXTRACTING_THRESHOLD_MS = 8 * 60 * 1000;
 const REQUIREMENT_CATEGORY_LABELS: Record<string, string> = {
   CERTIFICATION: "Certificación",
   FINANCIAL: "Solvencia económica",
@@ -196,6 +199,9 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
   const analysis = tender.analyses[0];
   const summary = analysis?.executiveSummaryJson as ExecutiveSummary | null | undefined;
 
+  const updatedAtMs = (typeof tender.updatedAt === "string" ? new Date(tender.updatedAt) : tender.updatedAt).getTime();
+  const stuckExtracting = tender.status === "EXTRACTING" && Date.now() - updatedAtMs > STUCK_EXTRACTING_THRESHOLD_MS;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -222,6 +228,15 @@ export function TenderStatusView({ initial }: { initial: TenderDetail }) {
                 ? "Puede tardar uno o dos minutos en pliegos largos. Puedes salir de esta pantalla."
                 : "Los pliegos escaneados pueden tardar varios minutos porque pasan por reconocimiento óptico (OCR)."}
             </p>
+            {stuckExtracting && (
+              <div className="flex flex-col items-center gap-2 pt-2">
+                <p className="text-sm text-muted-foreground">Esto está tardando más de lo normal.</p>
+                <Button variant="outline" onClick={handleRetryExtraction} disabled={retrying}>
+                  <RotateCw className="h-4 w-4" />
+                  Reintentar
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
