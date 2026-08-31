@@ -131,8 +131,8 @@ export function PdfSplitViewer({ tenderId, target }: { tenderId: string; target:
         )}
         {error && <p className="text-center text-sm text-destructive">{error}</p>}
         {!loading && !error && (
-          <div className="relative mx-auto inline-block">
-            <canvas ref={canvasRef} className="block shadow-md" />
+          <div className="relative mx-auto inline-block max-w-full">
+            <canvas ref={canvasRef} className="block h-auto max-w-full shadow-md" />
             {showHighlight && (
               <div
                 ref={highlightRef}
