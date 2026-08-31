@@ -4,7 +4,7 @@ import { fetchStoredFile } from "@/server/storage";
 import { PdfExtractionError, type TenderExtractionResult } from "@/server/pdf";
 import { extractPdfTextRange, SCANNED_HEURISTIC_CHARS_PER_PAGE } from "@/server/pdf/extract-text";
 import { extractStructuralDocument, type StructuralBlock } from "@/server/pdf/structural-extract";
-import { MAX_OCR_PAGES, ocrSinglePage } from "@/server/pdf/ocr";
+import { MAX_OCR_PAGES, ocrSinglePageStructured } from "@/server/pdf/ocr";
 
 /**
  * Páginas por step para el texto nativo y la indexación estructural — igual
@@ -136,6 +136,9 @@ export const extractTenderFunction = inngest.createFunction(
     } else {
       const pagesToProcess = Math.min(pageCount, MAX_OCR_PAGES);
       const pageTexts: string[] = [];
+      const ocrBlocks: StructuralBlock[] = [];
+      let clause: string | null = null;
+      let orderOffset = 0;
 
       await step.run("init-ocr-progress", async () => {
         await prisma.tender.update({
@@ -146,16 +149,19 @@ export const extractTenderFunction = inngest.createFunction(
 
       try {
         for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
-          const pageText = await step.run(`ocr-page-${pageNum}`, async () => {
+          const pageResult = await step.run(`ocr-page-${pageNum}`, async () => {
             const buffer = await loadTenderBuffer(tenderId);
-            const text = await ocrSinglePage(buffer, pageNum);
+            const result = await ocrSinglePageStructured(buffer, pageNum, clause, orderOffset);
             await prisma.tender.update({
               where: { id: tenderId },
               data: { ocrPagesProcessed: pageNum },
             });
-            return text;
+            return result;
           });
-          pageTexts.push(pageText);
+          pageTexts.push(pageResult.text);
+          ocrBlocks.push(...pageResult.blocks);
+          clause = pageResult.endClause;
+          orderOffset += pageResult.blocks.length;
         }
       } catch (error) {
         const message =
@@ -180,7 +186,7 @@ export const extractTenderFunction = inngest.createFunction(
         warning: truncated
           ? `El documento tiene ${pageCount} páginas escaneadas; por límite de procesamiento solo se analizaron por OCR las primeras ${pagesToProcess}.`
           : undefined,
-        structuralBlocks: [],
+        structuralBlocks: ocrBlocks,
       };
     }
 

@@ -17,10 +17,13 @@ import type { StructuralBlock } from "@/server/pdf/structural-extract";
 /**
  * Guardrail determinista: cruza la cita_literal + referencia.pagina que
  * reporta Claude contra los bloques estructurales reales del PDF (ver
- * src/server/pdf/verify-citation.ts). Si no hay bloques disponibles (p.ej.
- * el pliego cayó a OCR y no tiene bounding boxes fiables) no se puede
- * verificar nada — se marca pendiente de revisión humana igualmente, nunca
- * se asume que una cita no verificable es correcta.
+ * src/server/pdf/verify-citation.ts) — tanto si vienen de la capa de texto
+ * nativa como del OCR (ver ocrSinglePageStructured en
+ * src/server/pdf/ocr.ts, que también genera bbox por párrafo). Si no hay
+ * bloques disponibles (p.ej. el OCR falló por completo y no se extrajo ni
+ * una página) no se puede verificar nada — se marca pendiente de revisión
+ * humana igualmente, nunca se asume que una cita no verificable es
+ * correcta.
  */
 function checkCitation(
   citaLiteral: string,

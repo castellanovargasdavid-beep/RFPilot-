@@ -1,5 +1,5 @@
 import { extractPdfText } from "./extract-text";
-import { ocrPdfBuffer } from "./ocr";
+import { getPdfPageCount, MAX_OCR_PAGES, ocrSinglePageStructured } from "./ocr";
 import { extractStructuralDocument, type StructuralBlock } from "./structural-extract";
 
 export class PdfExtractionError extends Error {}
@@ -12,9 +12,11 @@ export interface TenderExtractionResult {
   warning?: string;
   /**
    * Bloques estructurales (página, cláusula, bounding box) para el
-   * guardrail anti-alucinación y el visor split-screen — solo se generan
-   * sobre la capa de texto nativa; un pliego que cae a OCR no los tiene
-   * (ver src/server/pdf/structural-extract.ts).
+   * guardrail anti-alucinación y el visor split-screen — se generan tanto
+   * de la capa de texto nativa (structural-extract.ts) como del OCR
+   * (ocrSinglePageStructured en ocr.ts, a partir de los párrafos que
+   * detecta Tesseract). Solo quedan vacíos si la indexación falla del
+   * todo para ese documento.
    */
   structuralBlocks: StructuralBlock[];
 }
@@ -63,16 +65,31 @@ export async function extractTenderDocument(buffer: Buffer): Promise<TenderExtra
   }
 
   try {
-    const ocrResult = await ocrPdfBuffer(buffer);
+    const totalPages = await getPdfPageCount(buffer);
+    const pagesToProcess = Math.min(totalPages, MAX_OCR_PAGES);
+    const pageTexts: string[] = [];
+    const structuralBlocks: StructuralBlock[] = [];
+    let clause: string | null = null;
+    let orderOffset = 0;
+
+    for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
+      const page = await ocrSinglePageStructured(buffer, pageNum, clause, orderOffset);
+      pageTexts.push(page.text);
+      structuralBlocks.push(...page.blocks);
+      clause = page.endClause;
+      orderOffset += page.blocks.length;
+    }
+
     return {
-      text: ocrResult.text,
-      pageCount: ocrResult.totalPages,
+      text: pageTexts.join("\n\n"),
+      pageCount: totalPages,
       usedOcr: true,
       extractionMethod: "tesseract-ocr",
-      warning: ocrResult.truncated
-        ? `El documento tiene ${ocrResult.totalPages} páginas escaneadas; por límite de procesamiento solo se analizaron por OCR las primeras ${ocrResult.pagesProcessed}.`
-        : undefined,
-      structuralBlocks: [],
+      warning:
+        totalPages > MAX_OCR_PAGES
+          ? `El documento tiene ${totalPages} páginas escaneadas; por límite de procesamiento solo se analizaron por OCR las primeras ${pagesToProcess}.`
+          : undefined,
+      structuralBlocks,
     };
   } catch (ocrError) {
     if (nativeResult.text.length > 0) {

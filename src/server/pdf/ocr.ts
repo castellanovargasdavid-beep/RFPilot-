@@ -3,7 +3,9 @@ import { createCanvas, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import "./setup-worker";
 import { createWorker } from "tesseract.js";
+import type Tesseract from "tesseract.js";
 import spaTrainedData from "@tesseract.js-data/spa";
+import { countBigHorizontalGaps, groupLinesIntoParagraphs, type PositionedLine, type StructuralBlock } from "./structural-extract";
 
 /**
  * Fallback OCR para pliegos escaneados (sin capa de texto). Renderiza cada
@@ -98,13 +100,6 @@ function preprocessForOcr(canvas: Canvas, context: SKRSContext2D): void {
   context.putImageData(imageData, 0, 0);
 }
 
-export interface OcrResult {
-  text: string;
-  pagesProcessed: number;
-  totalPages: number;
-  truncated: boolean;
-}
-
 class NodeCanvasFactory {
   create(width: number, height: number) {
     const canvas = createCanvas(width, height);
@@ -133,12 +128,20 @@ async function loadPdfForOcr(buffer: Buffer, canvasFactory: NodeCanvasFactory) {
   return loadingTask.promise;
 }
 
+interface RecognizedPage {
+  text: string;
+  /** Líneas detectadas por Tesseract con su bbox en píxeles de la imagen renderizada (ver imageWidth/imageHeight) — la base para construir StructuralBlock[] igual que la capa de texto nativa (ver groupLinesIntoParagraphs). */
+  lines: Tesseract.Line[];
+  imageWidth: number;
+  imageHeight: number;
+}
+
 async function renderAndRecognizePage(
   pdf: Awaited<ReturnType<typeof loadPdfForOcr>>,
   canvasFactory: NodeCanvasFactory,
   pageNum: number,
   worker: Awaited<ReturnType<typeof createWorker>>
-): Promise<string> {
+): Promise<RecognizedPage> {
   const page = await pdf.getPage(pageNum);
   const baseViewport = page.getViewport({ scale: 1 });
   const longestSide = Math.max(baseViewport.width, baseViewport.height);
@@ -157,10 +160,42 @@ async function renderAndRecognizePage(
   const imageBuffer = canvasAndContext.canvas.toBuffer("image/png");
   const { data: ocrData } = await worker.recognize(imageBuffer);
 
+  const imageWidth = canvasAndContext.canvas.width;
+  const imageHeight = canvasAndContext.canvas.height;
   canvasFactory.destroy(canvasAndContext);
   page.cleanup();
 
-  return `--- Página ${pageNum} ---\n${ocrData.text.trim()}`;
+  return { text: ocrData.text.trim(), lines: ocrData.lines ?? [], imageWidth, imageHeight };
+}
+
+/**
+ * Convierte las líneas de Tesseract (ya en orden de lectura, con bbox en
+ * píxeles) al mismo PositionedLine que usa la capa de texto nativa, para
+ * poder pasarlas por groupLinesIntoParagraphs y obtener bloques con la
+ * misma granularidad — un párrafo por salto de cláusula o hueco vertical,
+ * no "toda la página como un único bloque" (que es lo que da la propia
+ * segmentación de párrafos de Tesseract sobre un documento denso a una
+ * columna, verificado empíricamente contra un pliego real).
+ */
+function toPositionedLines(lines: Tesseract.Line[]): PositionedLine[] {
+  return lines
+    .map((line) => {
+      const text = line.text.trim();
+      if (!text) return null;
+      const lineHeight = line.bbox.y1 - line.bbox.y0 || 10;
+      const sortedWords = [...line.words].sort((a, b) => a.bbox.x0 - b.bbox.x0);
+      const edges = sortedWords.map((w) => ({ left: w.bbox.x0, right: w.bbox.x1 }));
+      const bigGaps = countBigHorizontalGaps(edges, lineHeight);
+      return {
+        text,
+        top: line.bbox.y0,
+        bottom: line.bbox.y1,
+        left: line.bbox.x0,
+        right: line.bbox.x1,
+        looksLikeTableRow: bigGaps >= 2,
+      };
+    })
+    .filter((line): line is PositionedLine => line !== null);
 }
 
 /**
@@ -178,66 +213,62 @@ export async function getPdfPageCount(buffer: Buffer): Promise<number> {
   return numPages;
 }
 
-/**
- * OCR de una única página. Existe para poder trocear un pliego escaneado
- * largo en un step de Inngest por página: cada llamada es una invocación
- * serverless independiente con su propio presupuesto de tiempo (60s en
- * plan Hobby de Vercel — ver maxDuration en src/app/api/inngest/route.ts),
- * así que ninguna página individual puede agotarlo aunque el documento
- * entero (hasta MAX_OCR_PAGES páginas) sí lo haría en un único paso.
- * Recarga el PDF y crea un worker de Tesseract nuevos en cada llamada
- * (no hay estado compartido entre invocaciones serverless distintas) — el
- * coste de esa recarga es aceptable frente al beneficio de no perder todo
- * el progreso si Vercel mata la función a mitad de un documento largo.
- */
-export async function ocrSinglePage(buffer: Buffer, pageNum: number): Promise<string> {
-  const canvasFactory = new NodeCanvasFactory();
-  const pdf = await loadPdfForOcr(buffer, canvasFactory);
-  const worker = await createWorker("spa", 1, {
-    langPath: spaTrainedData.langPath,
-    gzip: true,
-    cachePath: tmpdir(),
-  });
-
-  try {
-    return await renderAndRecognizePage(pdf, canvasFactory, pageNum, worker);
-  } finally {
-    await worker.terminate();
-    await pdf.destroy();
-  }
+function formatPageText(pageNum: number, text: string): string {
+  return `--- Página ${pageNum} ---\n${text}`;
 }
 
-export async function ocrPdfBuffer(
+export interface OcrPageResult {
+  text: string;
+  blocks: StructuralBlock[];
+  endClause: string | null;
+}
+
+/**
+ * OCR de una única página, con bloques estructurales (bbox incluido) —
+ * existe para poder trocear un pliego escaneado largo en un step de
+ * Inngest por página: cada llamada es una invocación serverless
+ * independiente con su propio presupuesto de tiempo (60s en plan Hobby de
+ * Vercel — ver maxDuration en src/app/api/inngest/route.ts), así que
+ * ninguna página individual puede agotarlo aunque el documento entero
+ * (hasta MAX_OCR_PAGES páginas) sí lo haría en un único paso. Recarga el
+ * PDF y crea un worker de Tesseract nuevos en cada llamada (no hay estado
+ * compartido entre invocaciones serverless distintas) — el coste de esa
+ * recarga es aceptable frente al beneficio de no perder todo el progreso
+ * si Vercel mata la función a mitad de un documento largo.
+ *
+ * `initialClause`/`orderOffset` funcionan igual que en
+ * extractStructuralDocument: pásale el `endClause` y el nº de bloques ya
+ * generados de la página anterior para que la cláusula vigente y el
+ * `order` sean coherentes a través de páginas.
+ */
+export async function ocrSinglePageStructured(
   buffer: Buffer,
-  onProgress?: (pageNum: number, totalPages: number) => void
-): Promise<OcrResult> {
+  pageNum: number,
+  initialClause: string | null,
+  orderOffset: number
+): Promise<OcrPageResult> {
   const canvasFactory = new NodeCanvasFactory();
   const pdf = await loadPdfForOcr(buffer, canvasFactory);
-
-  const totalPages = pdf.numPages;
-  const pagesToProcess = Math.min(totalPages, MAX_OCR_PAGES);
-
   const worker = await createWorker("spa", 1, {
     langPath: spaTrainedData.langPath,
     gzip: true,
     cachePath: tmpdir(),
   });
 
-  const pageTexts: string[] = [];
   try {
-    for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
-      pageTexts.push(await renderAndRecognizePage(pdf, canvasFactory, pageNum, worker));
-      onProgress?.(pageNum, pagesToProcess);
-    }
+    const page = await renderAndRecognizePage(pdf, canvasFactory, pageNum, worker);
+    const positionedLines = toPositionedLines(page.lines);
+    const { blocks, endClause } = groupLinesIntoParagraphs(
+      positionedLines,
+      pageNum,
+      page.imageWidth,
+      page.imageHeight,
+      initialClause,
+      orderOffset
+    );
+    return { text: formatPageText(pageNum, page.text), blocks, endClause };
   } finally {
     await worker.terminate();
     await pdf.destroy();
   }
-
-  return {
-    text: pageTexts.join("\n\n"),
-    pagesProcessed: pagesToProcess,
-    totalPages,
-    truncated: totalPages > MAX_OCR_PAGES,
-  };
 }
